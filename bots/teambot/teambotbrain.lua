@@ -2110,7 +2110,7 @@ object.tItemReservations = {
 	
 function object.ReserveItem(itemName)
 	
-	local debugTeamBotBrain = false
+	local debugTeamBotBrain = true
 	
 	if not itemName then return false end
 	

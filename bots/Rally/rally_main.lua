@@ -147,7 +147,7 @@ local function funcCheckingRoarPrioity ()
 			
 			if tEnemyInformation then
 				local nArmor = tEnemyInformation.nPArmor or 5
-				local nLevelBonus = 10 + (tEnemyInformation.nLevel or 0)
+				local nLevelBonus = 35 - (tEnemyInformation.nLevel or 5)
 				
 				if bDebugEchos then BotEcho("unit: "..unitEnemy:GetTypeName().." armor: "..nArmor.." levelbonus "..nLevelBonus) end
 				nArmorValueWeighted = nArmorValueWeighted + nArmor * nLevelBonus
@@ -304,179 +304,6 @@ object.nEnemyThreat = 10
 
 behaviorLib.nCreepPushbackMul = 0.5
 
-
-----------------------------------
---      Gravekeeper Item Build
-----------------------------------
---[[ list code:
-	"# Item" is "get # of these"
-	"Item #" is "get this level of the item" --]]
-
---ItemBuild
-
---1.Starting items
-shoppingLib.tStartingItems = {"Item_LoggersHatchet", "Item_IronBuckler", "Item_RunesOfTheBlight", "Item_ManaPotion"}
-
---mid
-shoppingLib.tLaneItems = 
-	{"Item_Marchers", "Item_Lifetube", "Item_EnhancedMarchers"}
-	
---late
-
-shoppingLib.tMidItems = 
-	{"Item_Shield2","Item_MysticVestments","Item_BloodChalice","Item_PortalKey"} 
-shoppingLib.tLateItems = 
-	{"Item_Intelligence7", "Item_SolsBulwark", "Item_DaemonicBreastplate","Item_BehemothsHeart" } 
-
-
---[[
---Gravekeeper Shopping function
-local function RallyItemBuild()
-	--called everytime your bot runs out of items, should return false if you are done with shopping
-	local debugInfo = false
-    
-	if debugInfo then BotEcho("Checking itembuilder of Gravekeeper") end
-	
-	--variable for new items / keep shopping
-	local bNewItems = false
-	  
-	--get itembuild decision table 
-	local tItemDecisions = shoppingLib.tItemDecisions
-	if debugInfo then BotEcho("Found ItemDecisions"..type(tItemDecisions)) end
-	
-	--decision helper
-	local nGPM = object:GetGPM()
-	
-	--early game (start items and lane items
-	
-	--If tItemDecisions["bStartingItems"] is not set yet, choose start and lane items
-		if not tItemDecisions.bStartingItems then
-			--insert decisions into our itembuild-table
-			core.InsertToTable(shoppingLib.tItembuild, shoppingLib.tStartingItems)
-			core.InsertToTable(shoppingLib.tItembuild, shoppingLib.tLaneItems)
-			
-					
-			--we have implemented new items, so we can keep shopping
-			bNewItems = true
-					
-			--remember our decision
-			tItemDecisions.bStartingItems = true
-		
-	--If tItemDecisions["bItemBuildRoute"] is not set yet, choose boots and item route
-		elseif not tItemDecisions.bItemBuildRoute then
-			
-			local sBootsChosen = nil
-			local tMidItems = nil
-			
-			--decision helper
-			local nMatchTime = HoN.GetMatchTime()
-			local nXPM = core.unitSelf:GetXPM()
-			
-			--check  for agressive or passive route
-			if nXPM < 170 and nMatchTime > core.MinToMS(5) then
-				--Bad early game: go for more defensive items
-				sBootsChosen = "Item_Steamboots"
-				tMidItems = {"Item_MysticVestments", "Item_Scarab",  "Item_SacrificialStone", "Item_Silence"}
-			else
-				--go aggressive
-				sBootsChosen = "Item_EnhancedMarchers"
-				tMidItems = {"Item_Silence"}
-			end
-			
-			--insert decisions into our itembuild-table: the boots
-			tinsert(shoppingLib.tItembuild, sBootsChosen)
-			
-			--insert items into default itemlist (Mid and Late-Game items)
-			tItemDecisions.tItemList = {}
-			tItemDecisions.nItemListPosition = 1
-			core.InsertToTable(tItemDecisions.tItemList, tMidItems)
-			core.InsertToTable(tItemDecisions.tItemList, shoppingLib.tLateItems)
-					
-			--we have implemented new items, so we can keep shopping
-			bNewItems = true
-					
-			--remember our decision
-			tItemDecisions.bItemBuildRoute = true
-			
-	--need Tablet?
-		elseif not tItemDecisions.bGetTablet and core.unitSelf:GetLevel() > 10 and nGPM < 240 then
-			--Mid game: Bad farm, so go for a tablet
-			
-			--insert decisions into our itembuild-table
-			tinsert(shoppingLib.tItembuild, "Item_PushStaff")
-			
-			--we have implemented new items, so we can keep shopping
-			bNewItems = true
-			
-			--remember our decision
-			tItemDecisions.bGetTablet = true
-			
-	--need Portal Key?	
-		elseif not tItemDecisions.bGetPK and nGPM >= 300 then
-			--Mid game: High farm, so go for pk 
-			
-			--insert decisions into our itembuild-table
-			tinsert(shoppingLib.tItembuild, "Item_PortalKey")
-			
-			--we have implemented new items, so we can keep shopping
-			bNewItems = true
-			--remember our decision
-			tItemDecisions.bGetPK = true
-			
-	--all other items
-		else
-		
-			--put default items into the item build list (One after another)
-			local tItemList = tItemDecisions.tItemList
-			local nItemListPosition = tItemDecisions.nItemListPosition
-			
-			local sItemCode = tItemList[nItemListPosition]
-			if sItemCode then
-				--got a new item code 
-				
-				--insert decisions into our itembuild-table
-				tinsert(shoppingLib.tItembuild, sItemCode)
-				
-				--next item position
-				tItemDecisions.nItemListPosition = nItemListPosition + 1
-				
-				--we have implemented new items, so we can keep shopping
-				bNewItems = true
-			end
-			
-		end
-	   
-	if debugInfo then BotEcho("Reached end of itembuilder-function. Keep shopping? "..tostring(bNewItems)) end
-	return bNewItems
-end
-shoppingLib.CheckItemBuild = RallyItemBuild	
-
---]]
-
-object.nSlamTime = 0	
-function object:onthinkOverride(tGameVariables)
-	self:onthinkOld(tGameVariables)
-	
-	--toDo Radius check if we hit ult
-	local teamBotBrain = core.teamBotBrain
-	if teamBotBrain then
-		local nNow = HoN.GetGameTime()
-		local unitHeroTarget = behaviorLib.heroTarget
-		local nSlamTime = object.nSlamTime
-		if unitHeroTarget and nSlamTime +1000 > nNow then
-			local vecExpectedPositon = teamBotBrain.funcGetUnitPosition (unitHeroTarget, nSlamTime+1250)
-			local vecMyPosition = core.unitSelf:GetPosition()
-			local nSlamRadius = funcGetSlamRadius()
-			if not vecExpectedPositon or Vector3.Distance2DSq(vecExpectedPositon, vecMyPosition) >
-				nSlamRadius*nSlamRadius then
-			object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
-			end
-		end
-	end
-
-end
-object.onthinkOld = object.onthink
-object.onthink 	= object.onthinkOverride
 	
 	
 --Arachna ability use gives bonus to harass util for a while
@@ -915,6 +742,400 @@ local function PickRuneExecuteOverride(botBrain)
 end
 behaviorLib.PickRuneBehavior["Execute"] = PickRuneExecuteOverride
 
+ object.nHelpTreshold = 40
+function object.SavingAlliesUtility(botBrain)
+	local nUtility = 0 
+	
+	if not skills.abilCompell:CanActivate() then 
+		return nUtility
+	end
+	
+	local tAlliesNear = core.localUnits["AllyHeroes"]
+	local nAlliesNear = core.NumberElements(tAlliesNear)
+	
+	if nAlliesNear > 0 then
+		local funcTimeToLive = life.funcTimeToLiveUtility
+		for _, unitAlly in pairs(tAlliesNear) do
+			--Isn't there a Restrained bool?or unitAlly:IsRestrained()
+			local bAllyIsInvalid = unitAlly:IsImmobilized()  or object.isMagicImmune(unitAlly)
+			local nUtilityAlly = not bAllyIsInvalid and funcTimeToLive(unitAlly)
+			if nUtilityAlly and nUtilityAlly > nUtility then
+				nUtility = nUtilityAlly
+				object.unitToSave = unitAlly
+			end
+		end
+	end
+	
+	if nUtility >= object.nHelpTreshold then
+		return Clamp(nUtility, 0, 50) 
+	else 
+		return 0
+	end
+end
+
+function object.SavingAlliesExecution(botBrain)
+	
+	local unitToSave = object.unitToSave
+	if not object.unitToSave then
+		return false
+	end
+	--or unitAlly:IsRestrained()
+	local bAllyIsInvalid = unitToSave:IsImmobilized()  or object.isMagicImmune(unitToSave)
+	local abilCompell = skills.abilCompell
+	if not abilCompell:CanActivate() or bAllyIsInvalid then
+		return false
+	end
+	
+	local unitSelf = core.unitSelf
+	local vecMyPosition = unitSelf:GetPosition()
+	local vecAllyPosition = unitToSave:GetPosition()
+	local nDistanceSq = Vector3.Distance2DSq(vecMyPosition, vecAllyPosition)
+	
+	local nCompellStunRange = abilCompell:GetRange()
+		
+	if nDistanceSq < nCompellStunRange*nCompellStunRange then
+		local vecPos = (behaviorLib.PositionSelfBackUp() - vecAllyPosition) 
+		return core.OrderAbilityEntityVector(botBrain, abilCompell, unitToSave, vecPos)
+	else
+		return core.OrderMoveToPos(botBrain, unitSelf, vecAllyPosition)
+	end
+
+end
+
+behaviorLib.SavingAllies = {}
+behaviorLib.SavingAllies["Utility"] = object.SavingAlliesUtility
+behaviorLib.SavingAllies["Execute"] = object.SavingAlliesExecution
+behaviorLib.SavingAllies["Name"] = "Saving Allies"
+tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies) 
+
+--Shopping
+
+--call setup function
+--We have to wait for our lane to ensure that we get the right items for midlane (Bottle)
+--We take care of the reservation ourself
+shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
+
+local function funcCheckSurvivalItem (tItemDecisions) 
+	--"none", "magic", "physical", "hp"
+	return "none"
+end
+
+--Rally Shopping function
+local function RallyItemBuild()
+	--called everytime your bot runs out of items, should return false if you are done with shopping
+	local bDebugInfo = true
+    
+	if bDebugInfo then BotEcho("Checking itembuilder of Rally") end
+
+	  
+	--get itembuild decision table 
+	local tItemDecisions = shoppingLib.tItemDecisions
+	if bDebugInfo then BotEcho("Found ItemDecisions"..type(tItemDecisions)) end
+		
+	if not tItemDecisions.nBigItems then
+		tItemDecisions.nBigItems = 0
+	end
+	local nBigItems = tItemDecisions.nBigItems
+	if nBigItems == 6 then
+		--inventory is full stop shopping 
+		if bDebugInfo then BotEcho("Done Shopping") end
+		return false
+	end
+	
+	--decision helper
+	local nGPM = object:GetGPM()
+	
+	
+	--start items
+	if not tItemDecisions.bLane then
+		local bNewItems = false
+		--check our lane
+		local tLane = core.tMyLane
+		if tLane then
+		--we found our lane, checkout its information
+			if bDebugInfo then BotEcho("Found my Lane") end
+			
+			local tStartingItems = nil
+			if tLane.sLaneName == "middle" then
+				--our bot was assigned to the middle lane
+				if bDebugInfo then BotEcho("I will take the Mid-Lane.") end
+				tStartingItems = {"Item_LoggersHatchet", "Item_IronBuckler", "Item_RunesOfTheBlight", "Item_Bottle", "Item_Marchers"}
+				tItemDecisions.bSkipRegen = true
+			else
+				--our bot was assigned to a side-lane lane
+				if bDebugInfo then BotEcho("Got on a sidelane") end
+				tStartingItems = {"Item_LoggersHatchet", "Item_IronBuckler", "Item_RunesOfTheBlight", "Item_ManaPotion", "Item_Marchers"}
+			end
+			
+			--insert decisions into our itembuild-table
+			core.InsertToTable(shoppingLib.tItembuild, tStartingItems)
+			
+			--we have implemented new items, so we can keep shopping
+			bNewItems = true
+		else
+			--lane is not set yet, this will cause issues in further item developement
+			if bDebugInfo then BotEcho("Error! No Lane set. No more shopping!") end
+		end
+			
+		--remember our decision
+		tItemDecisions.bLane = true
+		if bDebugInfo then BotEcho("Starting items finished. Keep shopping? "..tostring(bNewItems)) end
+		return bNewItems
+	end
+	
+	local sSurvivalattribute = funcCheckSurvivalItem(tItemDecisions)
+
+	
+	if sSurvivalattribute == "magic" and not tItemDecisions.bBarrierIdol then
+		if not tItemDecisions.bVestment then
+			tinsert(shoppingLib.tItembuild, "Item_MysticVestments")
+			if bDebugInfo then BotEcho("Need Vestments") end
+			tItemDecisions.bVestment = true
+			return true
+		elseif not tItemDecisions.bShamans then
+			tinsert(shoppingLib.tItembuild, "Item_MagicArmor2")
+			if bDebugInfo then BotEcho("Need Shamans") end
+			tItemDecisions.bShamans = true
+			return true		
+		else
+			tItemDecisions.bBarrierIdol = true
+			local teamBotBrain = core.teamBotBrain
+			local sBarrierIdol = "Item_BarrierIdol"
+			if teamBotBrain and teamBotBrain.ReserveItem(sBarrierIdol) then
+				tinsert(shoppingLib.tItembuild, sBarrierIdol)
+				if bDebugInfo then BotEcho("Need Barrier") end
+				tItemDecisions.nBigItems = nBigItems + 1
+				return true
+			end
+		end
+	elseif sSurvivalattribute == "physical" and tItemDecisions.bBootsFinished then
+		if tItemDecisions.bSolsBulwark == nil then 
+			local teamBotBrain = core.teamBotBrain
+			local sSolsBulwark = "Item_SolsBulwark"
+			if teamBotBrain and teamBotBrain.ReserveItem(sSolsBulwark) and teamBotBrain.ReserveItem("Item_DaemonicBreastplate") then
+				tinsert(shoppingLib.tItembuild, sSolsBulwark)
+				tItemDecisions.bSolsBulwark = true
+				if bDebugInfo then BotEcho("Need Sols") end
+				return true
+			else
+				if bDebugInfo then BotEcho("Sols or Daemonic is already taken... Going for something else") end
+				tItemDecisions.bSolsBulwark = false --keep in mind we have to check the other options here --> no elseif
+			end
+		end
+		
+		if tItemDecisions.bSolsBulwark and not tItemDecisions.bDaemonic then
+			tinsert(shoppingLib.tItembuild, "Item_DaemonicBreastplate")
+			tItemDecisions.bDaemonic = true
+			if bDebugInfo then BotEcho("Need Daemonic!") end
+			tItemDecisions.nBigItems = nBigItems + 1
+			return true
+		elseif not tItemDecisions.bFrostfield then
+			tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
+			tItemDecisions.bFrostfield = true
+			if bDebugInfo then BotEcho("Need FrostfieldPlate!") end
+			tItemDecisions.nBigItems = nBigItems +1
+			return true
+		elseif not tItemDecisions.bAbyssal then
+			tItemDecisions.bAbyssal = true
+			local teamBotBrain = core.teamBotBrain
+			local sAbyssal = "Item_LifeSteal5"
+			if teamBotBrain and teamBotBrain.ReserveItem(sAbyssal) then
+				tinsert(shoppingLib.tItembuild, sAbyssal)
+				if bDebugInfo then BotEcho("Need Abyssal") end
+				tItemDecisions.nBigItems = nBigItems + 1
+				return true
+			end ----keep in mind we have to check the other options here --> no elseif
+		end
+		
+		if not tItemDecisions.bBarbed then
+			tinsert(shoppingLib.tItembuild, "Item_Excruciator")
+			tItemDecisions.bBarbed = true
+			if bDebugInfo then BotEcho("Need Barbed!") end
+			return true
+		end
+	elseif sSurvivalattribute == "hp" then
+		if nGPM > 350 then
+			tItemDecisions.bSkipHelm = true
+		end
+		if not tItemDecisions.bSkipHelm and not tItemDecisions.bManaSupply and not tItemDecisions.bHelm then
+			tinsert(shoppingLib.tItembuild, "Item_Shield2")
+			tItemDecisions.bHelm = true
+			if bDebugInfo then BotEcho("Need Helm!") end
+			return true
+		elseif not tItemDecisions.bStaff and not tItemDecisions.bGlowStone then
+			tinsert(shoppingLib.tItembuild, "Item_Glowstone")
+			tItemDecisions.bGlowStone = true
+			if bDebugInfo then BotEcho("Need GlowStone!") end
+			return true
+		elseif not tItemDecisions.bHeart then
+			tinsert(shoppingLib.tItembuild, "Item_BehemothsHeart")
+			tItemDecisions.bHeart = true
+			tItemDecisions.nBigItems = nBigItems +1
+			if bDebugInfo then BotEcho("Need Behemoth!") end
+			return true	
+		end
+	end
+	
+	if not tItemDecisions.bSkipRegen and not tItemDecisions.bRegen then
+		if tItemDecisions.bHelm and not tItemDecisions.bBloodChalice then
+			core.InsertToTable(shoppingLib.tItembuild, {"Item_Scarab","Item_BloodChalice"})
+			tItemDecisions.bBloodChalice = true
+			if bDebugInfo then BotEcho("Need BloodChalice!") end
+			return true	
+		elseif not tItemDecisions.bManaSupply then
+			tinsert(shoppingLib.tItembuild, "Item_ManaBattery")
+			tItemDecisions.bManaSupply = true
+			if bDebugInfo then BotEcho("Need Mana Battery!") end
+			return true			
+		end
+		tItemDecisions.bRegen = true
+	end
+	
+	if not tItemDecisions.bBootsFinished then
+		local tItems = {}
+		--incredible farm go straight for posthaste
+		if nGPM > 400 then
+			tinsert(tItems, "Item_PostHaste")
+			tItemDecisions.bPostHaste = true
+			tItemDecisions.nBigItems = nBigItems +1
+		elseif tItemDecisions.bHelm or nGPM > 250 then
+			tinsert(tItems, "Item_EnhancedMarchers")
+		elseif nGPM > 180 then
+			tinsert(tItems, "Item_Steamboots")
+		else --Stider Time!
+			tinsert(tItems, "Item_Striders")
+		end
+		if tItemDecisions.bManaSupply then
+			tinsert(tItems, "Item_PowerSupply")
+		end
+		core.InsertToTable(shoppingLib.tItembuild, tItems)
+		tItemDecisions.bBootsFinished = true
+		if bDebugInfo then BotEcho("Need better boots!") end
+		return true	
+	end
+	
+	if not tItemDecisions.bMovementEnhancer then
+		--go for shroud if good farm, else pk
+		local sItemName = "Item_PortalKey"
+		if nGPM > 350 then
+			--go for shroud
+			sItemName = "Item_Stealth"
+			tItemDecisions.bShroud = true
+		end
+		tinsert(shoppingLib.tItembuild, sItemName)
+		tItemDecisions.bMovementEnhancer = true
+		tItemDecisions.nBigItems = nBigItems +1
+		if bDebugInfo then BotEcho("Need MovementEnhancer! PK: "..tostring(not tItemDecisions.bShroud).."Shroud: "..tostring(tItemDecisions.bShroud)) end
+		return true		
+	end
+	
+	if not  tItemDecisions.bStaff then
+		tinsert(shoppingLib.tItembuild, "Item_Intelligence7")
+		tItemDecisions.bStaff = true
+		if bDebugInfo then BotEcho("Getting my STAFF!") end
+		tItemDecisions.nBigItems = nBigItems +1
+		return true	
+	end
+	
+	if tItemDecisions.bShroud and not tItemDecisions.bGenjuro then
+		tinsert(shoppingLib.tItembuild, "Item_Sasuke")
+		tItemDecisions.bGenjuro = true
+		if bDebugInfo then BotEcho("Genjuro I am coming.") end
+		return true	
+	end
+	
+	if tItemDecisions.bShamans and not tItemDecisions.bBarrierIdol then
+		tinsert(shoppingLib.tItembuild, "Item_BarrierIdol")
+		tItemDecisions.bBarrierIdol = true
+		if bDebugInfo then BotEcho("Upgrading my Shamans!") end
+		tItemDecisions.nBigItems = tItemDecisions.nBigItems +1
+		return true	
+	end
+	
+	
+	if tItemDecisions.bSolsBulwark == nil then 
+		local teamBotBrain = core.teamBotBrain
+		local sSolsBulwark = "Item_SolsBulwark"
+		if teamBotBrain and teamBotBrain.ReserveItem(sSolsBulwark) and teamBotBrain.ReserveItem("Item_DaemonicBreastplate") then
+			tinsert(shoppingLib.tItembuild, sSolsBulwark)
+			tItemDecisions.bSolsBulwark = true
+			if bDebugInfo then BotEcho("Getting Sols") end
+			return true
+		else
+			if bDebugInfo then BotEcho("Sols or Daemonic is already taken... Going for something else") end
+			tItemDecisions.bSolsBulwark = false --keep in mind we have to check the other options here --> no elseif
+		end
+	elseif tItemDecisions.bSolsBulwark and not tItemDecisions.bDaemonic then
+		tinsert(shoppingLib.tItembuild, "Item_DaemonicBreastplate")
+		tItemDecisions.nBigItems = tItemDecisions.nBigItems +1
+		tItemDecisions.bDaemonic = true
+		if bDebugInfo then BotEcho("Getting Daemonic!") end
+		return true	
+	end
+			
+	if not tItemDecisions.bPostHaste then
+		tinsert(shoppingLib.tItembuild, "Item_PostHaste")
+		tItemDecisions.bPostHaste = true
+		if bDebugInfo then BotEcho("Just getting Posthaste. Tired of buying Tps") end
+		tItemDecisions.nBigItems = nBigItems +1
+		return true		
+	elseif not tItemDecisions.bFrostfield  and not tItemDecisions.bDaemonic then
+		tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
+		tItemDecisions.bFrostfield = true
+		tItemDecisions.nBigItems = nBigItems +1
+		if bDebugInfo then BotEcho("Getting a Frostfield") end
+		return true	
+	elseif not tItemDecisions.bHeart then
+		tinsert(shoppingLib.tItembuild, "Item_BehemothsHeart")
+		tItemDecisions.bHeart = true
+		tItemDecisions.nBigItems = nBigItems +1
+		if bDebugInfo then BotEcho("MY last item will be a behemoth heart") end
+		return true		
+	end
+	   
+	if debugInfo then BotEcho("I have no more items to buy") end
+	return false
+end
+shoppingLib.CheckItemBuild = RallyItemBuild	
+
+
+object.nSlamTime = 0	
+function object:onthinkOverride(tGameVariables)
+	self:onthinkOld(tGameVariables)
+	
+	--toDo Radius check if we hit ult
+	local teamBotBrain = core.teamBotBrain
+	if teamBotBrain then
+		local nNow = HoN.GetGameTime()
+		local unitHeroTarget = behaviorLib.heroTarget
+		local nSlamTime = object.nSlamTime
+		if unitHeroTarget and nSlamTime +1000 > nNow then
+			local vecExpectedPositon = teamBotBrain.funcGetUnitPosition (unitHeroTarget, nSlamTime+1250)
+			local vecMyPosition = core.unitSelf:GetPosition()
+			local nSlamRadius = funcGetSlamRadius()
+			if not vecExpectedPositon or Vector3.Distance2DSq(vecExpectedPositon, vecMyPosition) >
+				nSlamRadius*nSlamRadius then
+			object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
+			end
+		end
+	end
+
+end
+object.onthinkOld = object.onthink
+object.onthink 	= object.onthinkOverride
+
+--------------------
+-- Magic immunity --
+--------------------
+function object.isMagicImmune(unit)
+	local tStates = { "State_Item3E", "State_Predator_Ability2", "State_Jereziah_Ability2", "State_Rampage_Ability1_Self", "State_Rhapsody_Ability4_Buff", "State_Hiro_Ability1" }
+	for _, sState in ipairs(tStates) do
+		if unit:HasState(sState) then
+			return true
+		end
+	end
+	return false
+end
 
 --####################################################################
 --####################################################################
@@ -924,40 +1145,16 @@ behaviorLib.PickRuneBehavior["Execute"] = PickRuneExecuteOverride
 --####################################################################
 --####################################################################
 
-object.tCustomKillKeys = {
+core.tKillChatKeys = {
 	"Pain is a real motivator"  }
 
-local function GetKillKeysOverride(unitTarget)
-	local tChatKeys = object.funcGetKillKeysOld(unitTarget)
-	core.InsertToTable(tChatKeys, object.tCustomKillKeys)
-	return tChatKeys
-end
-object.funcGetKillKeysOld = core.GetKillKeys
-core.GetKillKeys = GetKillKeysOverride
-
-
-object.tCustomRespawnKeys = {
+core.tDeathChatKeys = {
 	"Rally!"	}
 
-local function GetRespawnKeysOverride()
-	local tChatKeys = object.funcGetRespawnKeysOld()
-	core.InsertToTable(tChatKeys, object.tCustomRespawnKeys)
-	return tChatKeys
-end
-object.funcGetRespawnKeysOld = core.GetRespawnKeys
-core.GetRespawnKeys = GetRespawnKeysOverride
-
-
-object.tCustomDeathKeys = {
+core.tRespawnChatKeys = {
 	"Gettin' outrallied." }
 
-local function GetDeathKeysOverride(unitSource)
-	local tChatKeys = object.funcGetDeathKeysOld(unitSource)
-	core.InsertToTable(tChatKeys, object.tCustomDeathKeys)
-	return tChatKeys
-end
-object.funcGetDeathKeysOld = core.GetDeathKeys
-core.GetDeathKeys = GetDeathKeysOverride
-
+--enable taunt for practice mode (hehe)
+Echo("g_perks 1")
 
 BotEcho('finished loading rally_main')

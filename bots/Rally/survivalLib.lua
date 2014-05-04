@@ -33,36 +33,18 @@ life.nThreatValueX1 = 500		--min Range Value (no increase below)
 life.nThreatValueY1 = 2		--max Threat-Factor
 life.nThreatValueX2 = 2000 	--max Range Value (zero threat afterwards)
 life.nThreatValueY2 = 0.75	--min Threat-Factor
-life.nThreatSteps = 25 		--units (Resolution)
-
-life.nThreatIndex = 0			
-local function createThreatMultiplierLookUpTable()
-
-	life.tThreatLookUp = {}
+		
+local function CreateThreatMultiplier()
+	
 	local nX1 = life.nThreatValueX1
 	local nY1 = life.nThreatValueY1
 	local nX2 = life.nThreatValueX2
 	local nY2 = life.nThreatValueY2
-	local nStep = life.nThreatSteps
 	
-	local nA = (nY2-nY1) / (nX2 - nX1)
-	local nB = nY1 - nA * nX1
-	
-	local tThreatLookUp = life.tThreatLookUp
-	for i = nX1, nX2, nStep do
-		local nValue = i * i
-		tinsert(tThreatLookUp, {nDistanceSq = nValue, nMultiplier = nA*i+nB})
-	end
-	
-	local function OrderIt(X, Y)
-		return X.nDistanceSq < Y.nDistanceSq
-	end
-			
-	table.sort(tThreatLookUp, OrderIt)
-	
-	object.nThreatIndex = #tThreatLookUp
+	life.nMultiplier = (nY2-nY1) / (nX2 - nX1)
+	life.nAdder = nY1 - life.nMultiplier * nX1
 end
-createThreatMultiplierLookUpTable()
+CreateThreatMultiplier()
 
 --get threat of enemy
 function life.funcGetThreatOfEnemy (unitEnemy, unitMyself)
@@ -80,10 +62,14 @@ function life.funcGetThreatOfEnemy (unitEnemy, unitMyself)
 	end
 	
 	local unitSelf = unitMyself or core.unitSelf
-	local nDistanceSq = Vector3.Distance2DSq(unitSelf:GetPosition(), vecEnemyPosition)
+	local vecDistance = vecEnemyPosition - unitSelf:GetPosition()
 	
-	local nMaxRangeSq = life.nThreatValueX2 * life.nThreatValueX2
-	if nDistanceSq > nMaxRangeSq then 
+	--Get Length of vector
+	local nDistanceY = vecDistance.y
+	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
+	
+	--distance greater than max-range?
+	if nDistance > life.nThreatValueX2 then 
 		return 0 
 	end
 	
@@ -93,27 +79,14 @@ function life.funcGetThreatOfEnemy (unitEnemy, unitMyself)
 	--Level differences increase / decrease actual nThreat
 	local nThreat = life.nEnemyBaseThreat + Clamp(nEnemyLevel - nMyLevel, life.nMinLevelDifference , life.nMaxLevelDifference)
 	
-	local nMinRangeSq = life.nThreatValueX1 * life.nThreatValueX1
-	if nDistanceSq <= nMinRangeSq then 
+	--distance lower than min range?
+	if nDistance <= life.nThreatValueX1 then 
 		return nThreat * life.nThreatValueY1 
 	end
 	
-	local tThreatLookUp = life.tThreatLookUp
+	local nMultiplier = nDistance * life.nMultiplier + life.nAdder
 	
-	local nLow = 1
-	local nHigh = life.nThreatIndex
-	
-	while (nHigh-nLow > 1) do
-		local nMiddle = math.floor((nHigh - nLow) / 2) + nLow
-		if nDistanceSq <= tThreatLookUp[nMiddle].nDistanceSq then
-			nHigh = nMiddle
-		else
-			nLow = nMiddle
-		end
-	end
-	
-	local nMultiplier = tThreatLookUp[nLow].nMultiplier
-	if bDebugEchoes then BotEcho("Found Distance. Enemy: "..tostring(unitEnemy:GetTypeName()).." DistanceSlot: "..tostring(nLow).." Threat: "..tostring(nThreat).." Multiplier "..tostring(nMultiplier).." Result Threat: "..tostring(nThreat*nMultiplier)) end
+	if bDebugEchoes then BotEcho("Found Distance. Enemy: "..tostring(unitEnemy:GetTypeName()).." Distance: "..tostring(nDistance).." Threat: "..tostring(nThreat).." Multiplier "..tostring(nMultiplier).." Result Threat: "..tostring(nThreat*nMultiplier)) end
 	
 	return nThreat * nMultiplier
 end
@@ -122,9 +95,9 @@ end
 --Time to Live stuff
 ---------------------------------------
 
-life.nTime2LiveTimeSpan = 2000
+life.nTime2LiveTimeSpan = 5000
 life.nTime2LiveNumberOfSlots = math.ceil((life.nTime2LiveTimeSpan + behaviorLib.nBehaviorAssessInterval) / behaviorLib.nBehaviorAssessInterval)
-life.nTime2LivePointOfInterest = 3 -- half a second
+life.nTime2LivePointOfInterest = 5 -- (number-1)*250 = point of interest --> 5=1s
 
 --Create a new instance for Health observation
 function life.CreateNewHealthObservation(nLife)
@@ -167,8 +140,8 @@ function life.GetLifeTimeTendency(tLife)
 	local nTendenz = 0
 	if nHPInteretingHPLost < nHPLostInTimeSpan * life.nTimeToLiveRelaxTreshold then
 		nTendenz = nHPLostInTimeSpan - nHPInteretingHPLost
-	--elseif nHPInteretingHPLost > nHPLostInTimeSpan * life.nTimeToLiveAlarmTreshold then
-	--	nTendenz = nHPLostInTimeSpan + nHPInteretingHPLost
+	elseif nHPInteretingHPLost > nHPLostInTimeSpan * life.nTimeToLiveAlarmTreshold then
+		nTendenz = nHPLostInTimeSpan + nHPInteretingHPLost
 	else
 		nTendenz = nHPLostInTimeSpan 
 	end
@@ -187,19 +160,22 @@ local function funcTimeToLive (unit)
 	if unit == nil  then return end 
 	
 	local nUnitHP = unit:GetHealth()
+	
 	local nUnitID = unit:GetUniqueID()
 	
 	--BotEcho(unitEnemy:GetTypeName())
 	local tHealthMemory = life.tHealthMemory
-
-	if not tHealthMemory[nUnitID] then
-		tHealthMemory[nUnitID] = life.CreateNewHealthObservation(nUnitHP)
+	
+	--delete entry if invalid
+	if not nUnitHP or not unit:IsAlive() then
+		tHealthMemory[nUnitID] = nil
+		return
+	elseif not tHealthMemory[nUnitID] then
+		tHealthMemory[nUnitID] = {life.CreateNewHealthObservation(nUnitHP),unit}
 	end
 	
-	--currently only once per behavior cycle
-	life.UpdateHealthObservation(tHealthMemory[nUnitID], nUnitHP)
 	
-	return life.GetLifeTimeTendency(tHealthMemory[nUnitID])
+	return life.GetLifeTimeTendency(tHealthMemory[nUnitID][1])
 end
 
 --Return a threatening value and the TimeToLive-value
@@ -363,3 +339,42 @@ local function CustomHealAtWellUtilityFnOverride(botBrain)
 	return Clamp(nUtility, 0, 50)
 end
 behaviorLib.HealAtWellBehavior["Utility"] = CustomHealAtWellUtilityFnOverride
+
+---------------------------------------------------
+-- On think: TeambotBrain  and Courier Control
+---------------------------------------------------
+life.nHPUpdate = 0
+function life:onThinkLife(tGameVariables)
+
+	local nNow = HoN.GetGameTime()
+	
+	--Update tracked life data
+	if life.nHPUpdate <= nNow then
+	
+		life.nHPUpdate = nNow + behaviorLib.nBehaviorAssessInterval
+		
+		local tHealthMemory = life.tHealthMemory
+		
+		local tDelete = {}
+		
+		for nID, tHeroInfo in pairs(tHealthMemory) do
+			local unitHero = tHeroInfo[2]
+			local nUnitHP = unitHero and unitHero:GetHealth()
+			if nUnitHP then
+				life.UpdateHealthObservation(tHeroInfo[1], nUnitHP)
+			else
+				--entry obsolet, delete it
+				tinsert(tDelete, nID)
+			end
+		end
+		
+		for _, nID in pairs(tDelete) do
+			tHealthMemory[nID] = nil
+		end
+	end
+	
+	--old onThink
+	self:onthinkPreLife(tGameVariables)
+end
+object.onthinkPreLife = object.onthink
+object.onthink 	= life.onThinkLife
