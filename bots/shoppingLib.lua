@@ -2174,6 +2174,7 @@ function shoppingLib:onThinkShopping(tGameVariables)
 		local teamBotBrain = HoN.GetTeamBotBrain()
 		if teamBotBrain and teamBotBrain ~= core.teamBotBrain then
 			core.botBrainInitialized = false
+			shoppingLib.bInitOnThink = false
 			local nUID = object:GetHeroUnit():GetUniqueID()
 			if not teamBotBrain.tShoppingInfo[nUID] then
 				BotEcho("Teambot Reloaded. Updating all references")

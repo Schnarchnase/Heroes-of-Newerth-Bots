@@ -95,9 +95,9 @@ end
 --Time to Live stuff
 ---------------------------------------
 
-life.nTime2LiveTimeSpan = 5000
+life.nTime2LiveTimeSpan = 3000
 life.nTime2LiveNumberOfSlots = math.ceil((life.nTime2LiveTimeSpan + behaviorLib.nBehaviorAssessInterval) / behaviorLib.nBehaviorAssessInterval)
-life.nTime2LivePointOfInterest = 5 -- (number-1)*250 = point of interest --> 5=1s
+life.nTime2LivePointOfInterest = 4 -- (number-1)*250 = point of interest --> 5=1s
 
 --Create a new instance for Health observation
 function life.CreateNewHealthObservation(nLife)
@@ -140,8 +140,8 @@ function life.GetLifeTimeTendency(tLife)
 	local nTendenz = 0
 	if nHPInteretingHPLost < nHPLostInTimeSpan * life.nTimeToLiveRelaxTreshold then
 		nTendenz = nHPLostInTimeSpan - nHPInteretingHPLost
-	elseif nHPInteretingHPLost > nHPLostInTimeSpan * life.nTimeToLiveAlarmTreshold then
-		nTendenz = nHPLostInTimeSpan + nHPInteretingHPLost
+	--elseif nHPInteretingHPLost > nHPLostInTimeSpan * life.nTimeToLiveAlarmTreshold then
+	--	nTendenz = nHPLostInTimeSpan + nHPInteretingHPLost
 	else
 		nTendenz = nHPLostInTimeSpan 
 	end
@@ -224,11 +224,11 @@ end
 ---------------------------------------------------
 
 life.nTowerAggroUtility = 15
-life.CreepThreatMultiplicator = 3
+life.CreepThreatMultiplicator = 4
 life.nDangerousStatesMalus = 15
 local function CustomRetreatFromThreatUtilityFnOverride(botBrain)
 	local bDebugEchos = false
-	local bCompareOldToNew = false
+	local bCompareOldToNew = true
 			
 	local nUtilityLifeTime, nTimeToLive = life.funcTimeToLiveUtility(core.unitSelf)
 	

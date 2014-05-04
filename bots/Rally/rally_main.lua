@@ -28,7 +28,7 @@ object.bAttackCommands 	= true
 object.bAbilityCommands = true
 object.bOtherCommands 	= true
 
-object.bReportBehavior = false
+object.bReportBehavior = true
 object.bDebugUtility = false
 object.bDebugExecute = false
 
@@ -708,7 +708,7 @@ local function PickRuneUtilityOverride(botBrain)
 	--bottle? check rune frequently
 	local itemBottle = core.GetItem("Item_Bottle")
 	if itemBottle then
-		nRuneGrabRange = nRuneGrabRange + 500
+		nRuneGrabRange = nRuneGrabRange + 1500
 	end
 	
 		
@@ -719,7 +719,7 @@ local function PickRuneUtilityOverride(botBrain)
 
 	behaviorLib.tRuneToPick = tRune
 
-	return 30
+	return 35
 end
 behaviorLib.PickRuneBehavior["Utility"] = PickRuneUtilityOverride
 
@@ -732,9 +732,10 @@ local function PickRuneExecuteOverride(botBrain)
 	local unitSelf = core.unitSelf
 	--local nDistanceSQ = Vector3.Distance2DSq(vecRunePosition, unitSelf:GetPosition())
 	
-	if not HoN.CanSeePosition(vecRunePosition) or tRune.unit == nil then
+	if not HoN.CanSeePosition(vecRunePosition) or not tRune.unit then
 		return behaviorLib.MoveExecute(botBrain, vecRunePosition)
 	elseif tRune.unit and tRune.unit:IsValid() then
+		BotEcho("Touching")
 		return core.OrderTouch(botBrain, unitSelf, tRune.unit)
 	else 
 		return false
