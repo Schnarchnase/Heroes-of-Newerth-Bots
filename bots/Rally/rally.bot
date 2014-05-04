@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bot
+	name="RallyBot"
+	description="bot_description_rally"
+	heroname="Hero_Rally"
+	rootlua="rally_main.lua"
+	defaultplayername="RallyBot"
+	precachepath="/heroes/rally/"
+/>
