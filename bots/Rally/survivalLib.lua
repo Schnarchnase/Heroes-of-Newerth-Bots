@@ -95,9 +95,10 @@ end
 --Time to Live stuff
 ---------------------------------------
 
-life.nTime2LiveTimeSpan = 3000
+life.nTime2LiveTimeSpan = 2000
 life.nTime2LiveNumberOfSlots = math.ceil((life.nTime2LiveTimeSpan + behaviorLib.nBehaviorAssessInterval) / behaviorLib.nBehaviorAssessInterval)
-life.nTime2LivePointOfInterest = 4 -- (number-1)*250 = point of interest --> 5=1s
+life.nTime2LivePointOfInterest = 3 -- (number-1)*250 = point of interest --> 5=1s
+life.nPointOfInterestTimeSpan = life.nTime2LiveTimeSpan * life.nTime2LivePointOfInterest / life.nTime2LiveNumberOfSlots
 
 --Create a new instance for Health observation
 function life.CreateNewHealthObservation(nLife)
@@ -137,17 +138,22 @@ function life.GetLifeTimeTendency(tLife)
 		nHPInteretingHPLost = 0 
 	end
 	
-	local nTendenz = 0
-	if nHPInteretingHPLost < nHPLostInTimeSpan * life.nTimeToLiveRelaxTreshold then
-		nTendenz = nHPLostInTimeSpan - nHPInteretingHPLost
-	--elseif nHPInteretingHPLost > nHPLostInTimeSpan * life.nTimeToLiveAlarmTreshold then
-	--	nTendenz = nHPLostInTimeSpan + nHPInteretingHPLost
+	local nTimeSpan = life.nTime2LiveTimeSpan
+	local nPointOfInterestTimeSpan = life.nPointOfInterestTimeSpan
+	
+	local nTendenz = nHPInteretingHPLost * nTimeSpan / nPointOfInterestTimeSpan
+	if nTendenz *  life.nTimeToLiveAlarmTreshold > nHPLostInTimeSpan then
+		--We getting heavy damage all of a sudden
+		nTendenz = (nTendenz + nHPLostInTimeSpan) / 2
+	elseif nTendenz < nHPLostInTimeSpan * life.nTimeToLiveRelaxTreshold then
+		--We getting less and less damage
+		nTendenz = (nHPLostInTimeSpan + nTendenz) / 2
 	else
 		nTendenz = nHPLostInTimeSpan 
 	end
 	  
 	if nTendenz > 0 then 
-		return life.nTime2LiveTimeSpan / 1000 * nCurrentHealth / nTendenz
+		return nTimeSpan / 1000 * nCurrentHealth / nTendenz
 	end
 end
 

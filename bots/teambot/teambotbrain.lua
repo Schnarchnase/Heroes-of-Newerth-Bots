@@ -230,7 +230,7 @@ function object:onthink(tGameVariables)
 		end
 	end
 
-	if time and time > object.nRuneNextCheck then
+	if nTime and nTime > object.nRuneNextCheck then
 		object.nRuneNextCheck = object.nRuneNextCheck + object.nRuneCheckInterval
 		object.CheckRunes()
 	end
@@ -2471,7 +2471,11 @@ function object.funcCoordinateGanks()
 		--check ganking power
 		for _, tBrain in ipairs(tDistance) do
 			local botBrain = tBrain[2]
-			local nBurst, nDPS, nLockdown, nArrivalTime = botBrain.GetGankingPower(unitEnemy)
+			local nBurst, nDPS, nLockdown, nArrivalTime = botBrain.GetGankingPower(unitEnemy, object)
+			
+			if nBurst and nDPS and nLockdown and nArrivalTime then
+			
+			end
 			
 			if nArrivalTime > nMaxTime then
 				nMaxTime = nArrivalTime

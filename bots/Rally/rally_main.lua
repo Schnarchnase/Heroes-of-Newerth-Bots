@@ -67,7 +67,7 @@ object.heroName = 'Hero_Rally'
 
 
 local tCompellDamage = {70,130,190,250}
---local tCompellStun = {1250,1500,1750,2000}
+local tCompellStun = {1250,1500,1750,2000}
 local tRoarDamage = {40,80,120,160}
 local tBattleExpPierce = {0.15,0.30,0.45,0.60}
 local tSlamDamage = {400,650,900}
@@ -94,6 +94,13 @@ local function funcGetCompellDamage (nLevel)
 		return 0
 	end
 	return tCompellDamage[nLevel]
+end
+
+local function funcGetCompellStun (nLevel)
+	if not nLevel or nLevel > 4 or nLevel < 1 then
+		return 0
+	end
+	return tCompellStun[nLevel]
 end
 
 local function funcGetRoarDamage (nLevel)
@@ -304,13 +311,40 @@ object.nEnemyThreat = 10
 
 behaviorLib.nCreepPushbackMul = 0.5
 
+object.nTrueDamgaTaken = 0
+object.nMagicalDamageTaken = 0
+object.nPhysicalDamageTaken = 0
+function object.UpdateDamageObservation(EventData)
 	
-	
+	local sDamageType = EventData.DamageType
+	local nDamageApplied = EventData.DamageApplied
+	if sDamageType == "Physical" then
+		BotEcho("Getting hit by physical damage!")
+		object.nPhysicalDamageTaken= object.nPhysicalDamageTaken + nDamageApplied
+	elseif sDamageType == "Magic" then
+		BotEcho("Getting hit by magical damage!")
+		object.nMagicalDamageTaken = object.nMagicalDamageTaken + nDamageApplied
+	else
+		--True Damage?
+		object.nTrueDamgaTaken = object.nTrueDamgaTaken + nDamageApplied
+		BotEcho("Is this true damage?")
+	end
+	BotEcho("Damage Attempted: "..tostring(EventData.DamageAttempted).." and Applied: "..tostring(nDamageApplied))
+end
+
 --Arachna ability use gives bonus to harass util for a while
 function object:oncombateventOverride(EventData)
 	self:oncombateventOld(EventData)
 	
 	local nAddBonus = 0
+	
+	if EventData.Type == "Damage" then
+		local bIsHero = EventData.SourceUnit and EventData.SourceUnit:IsHero()
+		if bIsHero and EventData.TargetUnit == core.unitSelf.unit then
+			eventsLib.printCombatEvent(EventData)
+		end
+		object.UpdateDamageObservation(EventData)
+	end
 	
 	if EventData.Type == "Ability" then
 		if EventData.InflictorName == "Ability_Rally1" and object.nCurrentBehavior == "HarassHero" then
@@ -590,13 +624,107 @@ behaviorLib.HarassHeroBehavior["Execute"] = HarassHeroExecuteOverride
 --[[
 --hunting/grouphunting util
 function object.funcCheckRequirementsToGank()
-	return 3000*3000
+	local unitSelf = core.unitSelf
+	local nHPPercent = unitSelf:GetHealthPercent()
+	local nMana =  unitSelf:GetMana()
+	
+	if nHPPercent < 0.4 or nMana < 130 then
+		return 0
+	end
+	
+	local nGankRange = 0
+	
+	local abilCompell = skills.abilCompell
+	local abilRoar = skills.abilRoar
+	local abilSlam = skills.abilSlam
+	
+	local nCompellManaCost = abilCompell:GetManaCost()
+	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
+		nGankRange = nGankRange + 600
+		nMana = nMana - nCompellManaCost
+	end
+	
+	local itemRange = core.GetItem("Item_PortalKey") or core.GetItem("Item_Stealth") or core.GetItem("Item_Sasuke")
+	local nItemRangeManaCost = itemRange and itemRange:GetManaCost() 
+	if itemRange and itemRange:CanActivate() and nMana >= nItemRangeManaCost then
+		nGankRange = nGankRange + 1500
+		nMana = nMana - nItemRangeManaCost
+	end
+	
+	local nSlamManaCost = abilSlam:GetManaCost()
+	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
+		nGankRange = nGankRange + 2000
+		nMana = nMana - nSlamManaCost
+	end
+	
+	local nRoarManaCost = abilRoar:GetManaCost()
+	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
+		nGankRange = nGankRange + 400
+	end
+	
+	if nHPPercent > 0.9 then
+		nGankRange  = nGankRange + 1000
+	end
+	
+	return nGankRange
 end
 
-function object.GetGankingPower(unitEnemy)
+function object.GetGankingPower(tEnemyInformation)
+	
+	if not tEnemyInformation then return end
+	local unitSelf = core.unitSelf
+	
+	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition
+	local vecMyPosition = unitSelf:GetPosition()
+	
+	local vecDistance = vecEnemyPosition - vecMyPosition
+	
+	--Get Length of vector
+	local nDistanceY = vecDistance.y
+	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
+	
+	--Basic Arrival Time
+	local nArrivalTime = nDistance / unitSelf:GetMoveSpeed() * 1000
+	local nBurst = 0
+	local nDPS = 0
+	local nLockDown = 0
+	
+	local abilCompell = skills.abilCompell
+	local abilRoar = skills.abilRoar
+	local abilSlam = skills.abilSlam
+	
+	local nCompellManaCost = abilCompell:GetManaCost()
+	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
+		local nLevel = abilCompell:GetLevel()
+		nLockDown = funcGetCompellStun(nLevel)
+		nBurst = funcGetCompellDamage(nLevel)
+		nMana = nMana - nCompellManaCost
+	end
+		
+	local nSlamManaCost = abilSlam:GetManaCost()
+	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
+		nBurst = nBurst + funcGetCompellDamage(abilSlam:GetLevel())
+		nLockDown = nLockDown > 0 and nLockDown - 750 or 0
+		nMana = nMana - nSlamManaCost
+	end
+	
+	local nRoarManaCost = abilRoar:GetManaCost()
+	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
+		nBurst = nBurst + funcGetRoarDamage(abilRoar:GetLevel())
+		nLockdown = nLockdown + 500 
+	end
+	
+	local nDamage = core.GetFinalAttackDamageAverage(unitSelf)
+	local nAttacksPerSecond = core.GetAttacksPerSecond(unitSelf)
+	local DPS = nDamage * nAttacksPerSecond
+	
+	local nArmor = tEnemyInformation.nPArmor
+	
+	--burst, dps, lockdown, TimeToArrive
 	return 600, 55, 3, 10000
 end
-
+--]]
+--[[
 --hunting exec
 function object.HuntingUtility(botBrain)
 	return core.teamBotBrain.HuntingUtility(botBrain)
@@ -816,7 +944,44 @@ tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies)
 --We take care of the reservation ourself
 shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
 
+object.nItemuilddamageTime = 0
 local function funcCheckSurvivalItem (tItemDecisions) 
+	local nTrueDamgaTaken = object.nTrueDamgaTaken
+	local nMagicalDamageTaken = object.nMagicalDamageTaken
+	local nPhysicalDamageTaken = object.nPhysicalDamageTaken
+	
+	local nSum = nTrueDamgaTaken + nMagicalDamageTaken + nPhysicalDamageTaken
+	local nMagicPercent = nMagicalDamageTaken / nSum
+	local nPhysicalPercent = nPhysicalDamageTaken / nSum
+	
+	local nNow = HoN.GetMatchTime()
+	local nItemuilddamageTime = object.nItemuilddamageTime
+	object.nTrueDamgaTaken = 0
+	object.nMagicalDamageTaken = 0
+	object.nPhysicalDamageTaken = 0
+	
+	local unitSelf = core.unitSelf
+	local nMaxHP = unitSelf:GetMaxHealth()
+	
+	if nNow and nNow > nItemuilddamageTime then
+		local nTimeSpan = nNow - nItemuilddamageTime
+		object.nItemuilddamageTime = nNow
+		if nMagicPercent > 0.6 and nMaxHP >= 1000 then
+			BotEcho("Magic Percent :"..tostring(nMagicPercent))
+			return "magic"
+		elseif nPhysicalPercent > 0.6 and tItemDecisions.bBootsFinished then
+			BotEcho("Physical Percent :"..tostring(nPhysicalPercent))
+			return "physical"
+		elseif nSum / nTimeSpan > nMaxHP / 1000 then
+			BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
+			return "hp"
+		else
+			BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
+			BotEcho("Nothing to worry about")
+			return "none"
+		end
+	end
+	
 	--"none", "magic", "physical", "hp"
 	return "none"
 end
@@ -930,6 +1095,11 @@ local function RallyItemBuild()
 			if bDebugInfo then BotEcho("Need Daemonic!") end
 			tItemDecisions.nBigItems = nBigItems + 1
 			return true
+		elseif not tItemDecisions.bPlateMail and not tItemDecisions.bFrostfield then
+			tinsert(shoppingLib.tItembuild, "Item_Platemail")
+			tItemDecisions.bFrostfield = true
+			if bDebugInfo then BotEcho("Need Platemail!!") end
+			return true
 		elseif not tItemDecisions.bFrostfield then
 			tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
 			tItemDecisions.bFrostfield = true
@@ -1030,7 +1200,12 @@ local function RallyItemBuild()
 		return true		
 	end
 	
-	if not  tItemDecisions.bStaff then
+	if not tItemDecisions.bGlowStone then
+			tinsert(shoppingLib.tItembuild, "Item_Glowstone")
+			tItemDecisions.bGlowStone = true
+			if bDebugInfo then BotEcho("Need GlowStone!") end
+			return true
+	elseif not  tItemDecisions.bStaff then
 		tinsert(shoppingLib.tItembuild, "Item_Intelligence7")
 		tItemDecisions.bStaff = true
 		if bDebugInfo then BotEcho("Getting my STAFF!") end
@@ -1080,7 +1255,7 @@ local function RallyItemBuild()
 		if bDebugInfo then BotEcho("Just getting Posthaste. Tired of buying Tps") end
 		tItemDecisions.nBigItems = nBigItems +1
 		return true		
-	elseif not tItemDecisions.bFrostfield  and not tItemDecisions.bDaemonic then
+	elseif not tItemDecisions.bFrostfield  and (not tItemDecisions.bDaemonic or tItemDecisions.bPlateMail) then
 		tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
 		tItemDecisions.bFrostfield = true
 		tItemDecisions.nBigItems = nBigItems +1
