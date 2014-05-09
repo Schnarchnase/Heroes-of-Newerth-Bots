@@ -254,46 +254,63 @@ parameters: 	sItemName : Name of the item (e.g. "Item_HomecomingStone");
 
 returns:		the item or nil if not found
 --]]
-function itemHandler:GetItem(sItemName, unitSelected, bIncludeStash)
+function itemHandler:GetItem(sItemName, unitSelected, bReturnAll)
 	   
-	   --no item name, no item
-		if not sItemName then 
-			return 
-		end
-		--default unit: hero-unit
-		if not unitSelected then 
-			unitSelected = core.unitSelf 
-		end
+	--no item name, no item
+	if not sItemName then 
+		return 
+	end
+	
+	--default unit: hero-unit
+	if not unitSelected then 
+		unitSelected = core.unitSelf 
+	end
 	   
-	   --get the item
-		local nUnitID = unitSelected:GetUniqueID()
-		local sItemKey = nUnitID..sItemName
-		local itemEntry = nUnitID and itemHandler.tItems[sItemKey]
-		
-		--test if there is an item and if its still usable
-		if itemEntry and itemEntry:IsValid() then 
-			--access = in the inventory of this unit
-			local bAccess = unitSelected:CanAccess(itemEntry.object)
-			--in stash, therefore not accessable
-			local nSlot = itemEntry:GetSlot()
-			local bInUnitsInventory = nSlot <= 6
-			
-			if shoppingLib.bDebugInfoItemHandler then BotEcho("Access to item "..sItemName.." in slot "..tostring(nSlot).." granted: "..tostring(bAccess)) end
-			
-			--don't delete if its acessable or in stash
-			if bInUnitsInventory and not bAccess then
-				--outdated entry
-				itemHandler.tItems[sItemKey] = nil
-			elseif bAccess or bIncludeStash then
-				if shoppingLib.bDebugInfoItemHandler then BotEcho("Return Item: "..sItemName) end
-				
-				--return the item
-				return itemEntry
+	local nUnitID = unitSelected:GetUniqueID()
+	
+	if not nUnitID then
+		if shoppingLib.bDebugInfoItemHandler then BotEcho("Something went wrong with nUnitID") end
+		return
+	end
+	
+	local sItemKey = nUnitID..sItemName
+	
+	--get table
+	local tItems = itemHandler.tItems[sItemKey]
+	if not tItems then
+		--no item
+		return
+	end
+	
+	local tResult = nil
+	if bReturnAll then
+		tResult = {}
+	end
+	
+	local bSuccess = false
+	for _,item in ipairs(tItems) do 
+		if item and item:IsValid() then
+			if not bReturnAll then
+				local bAccess = unitSelected:CanAccess(item.object)
+
+				if shoppingLib.bDebugInfoItemHandler then 
+					local nSlot = item:GetSlot()
+					BotEcho("Access to item "..sItemName.." in slot "..tostring(nSlot).." granted: "..tostring(bAccess)) 
+				end
+				if bAccess then
+					if shoppingLib.bDebugInfoItemHandler then BotEcho("Return Item: "..sItemName) end
+					return item
+				end
+			else
+				bSuccess = true
+				tinsert(tResult, item)
 			end
-		else
-			--item is not usable --> delete it
-			itemHandler.tItems[sItemKey] = nil
 		end
+	end
+	
+	if bSuccess then
+		return tResult
+	end
 end
  
 --function AddItem
@@ -316,27 +333,39 @@ function itemHandler:AddItem(itemCurrent, unitSelected)
 		unitSelected = core.unitSelf 
 	end
 	
+	local nUnitID = unitSelected:GetUniqueID()
+	
 	--itemName
 	local sItemName = itemCurrent:GetName()
-	behaviorLib.addItemBehavior(sItemName)
+	local sItemKey = nUnitID..sItemName
 	
 	--be sure that there is no item in database
-	if not itemHandler:GetItem(sItemName, unitSelected, true) then
-		
-		local unitID = unitSelected:GetUniqueID()
-		
-		if shoppingLib.bDebugInfoItemHandler then BotEcho("Add Item: "..sItemName) end
-		
-		--add item
-		itemHandler.tItems[unitID..sItemName] = core.WrapInTable(itemCurrent)
+	local tItems = itemHandler:GetItem(sItemName, unitSelected, true)
+	
+	if not tItems then
+		--no table, create a new one
+		itemHandler.tItems[sItemKey] = {}
+	else
+		--check if this item is already in the database
+		for nID, item in ipairs(tItems) do
+			if item == itemCurrent then
+				--already in database 
+				if shoppingLib.bDebugInfoItemHandler then BotEcho("Item already in itemHandler: "..sItemName) end
 				
-		--return success
-		return true
+				return false
+			end
+		end		
 	end
 	
-	if shoppingLib.bDebugInfoItemHandler then BotEcho("Item already in itemHandler: "..sItemName) end
-	--return failure
-	return false
+	if shoppingLib.bDebugInfoItemHandler then BotEcho("Add Item: "..sItemName) end
+	
+	--add item
+	tinsert(itemHandler.tItems[sItemKey], core.WrapInTable(itemCurrent))
+	
+	behaviorLib.addItemBehavior(sItemName)
+	
+	--return success
+	return true
 end
  
 --function Update Database
@@ -352,10 +381,20 @@ function itemHandler:UpdateDatabase(bClear)
 	--remove invalid entries
 	if bClear then
 		if shoppingLib.bDebugInfoItemHandler then BotEcho("Clear list") end
-		for slot, item in pairs(itemHandler.tItems) do
-			if item and not item:IsValid() then
-				--item is not valid remove it
-				 itemHandler.tItems[slot] = nil
+		for sSlot, tItems in pairs(itemHandler.tItems) do
+			local tRemoveStuff = {}
+			for nID, item in ipairs(tItems) do
+				if item and not item:IsValid() then
+					--item is not valid remove it
+					tinsert(tRemoveStuff, 1, nID)
+				end
+			end
+			for _,nID in ipairs (tRemoveStuff) do
+				tremove(tItems, nID)
+			end
+			--entry not needed anymore
+			if core.NumberElements(tItems) < 1 then
+				itemHandler.tItems[sSlot] = nil
 			end
 		end
 	end
@@ -559,7 +598,7 @@ function shoppingLib.GetCourier(bForceUpdate)
 				if shoppingLib.bDebugInfoShoppingFunctions then BotEcho("Found Courier!") end
 				
 				--my courier? share to team
-				if unit:GetOwnerPlayer() == core.unitSelf:GetOwnerPlayer() then
+				if unit:GetOwnerPlayerID() == core.unitSelf:GetOwnerPlayerID() then
 					unit:TeamShare()
 				end
 				
@@ -664,9 +703,14 @@ function  shoppingLib.Autobuy()
 	--read-Only ShoppingList
 	local tShoppingList = shoppingLib.tShoppingList
 	
+	--check for bottle and stop buying regen
+	if shoppingLib.bBuyRegen and (itemHandler:GetItem("Item_Bottle", nil, true) or itemHandler:GetItem("Item_Bottle", unitCourier)) then
+		shoppingLib.bBuyRegen = false
+	end
+	
 	--Regen
 	if shoppingLib.bBuyRegen then
-		
+				
 		local bBuyRegen = false
 		
 		--info about Health and Mana
@@ -683,7 +727,7 @@ function  shoppingLib.Autobuy()
 				--only buy Runes if we don't have some
 				local itemBlightRunes = itemHandler:GetItem(sNameBlightRunes, nil, true) or itemHandler:GetItem(sNameBlightRunes, unitCourier)
 				local itemDef = HoN.GetItemDefinition(sNameBlightRunes)
-				if not itemBlightRunes and core.tableContains (tShoppingList, itemDef) == 0 and nHealthPercent < 0.8 and nHealthPercent >= 0.6 then
+				if not itemBlightRunes and core.tableContains (tShoppingList, itemDef) == 0 and nHealthPercent < 0.6 and nHealthPercent >= 0.5 then
 					local nCost = itemDef:GetCost()
 					
 					--check if we can afford them
@@ -699,7 +743,7 @@ function  shoppingLib.Autobuy()
 				--only buy potions if we don't have some
 				local itemHealthPotion = itemHandler:GetItem(sNameHealthPostion, nil, true) or itemHandler:GetItem(sNameHealthPostion, unitCourier)
 				local itemDef = HoN.GetItemDefinition(sNameHealthPostion)
-				if not itemHealthPotion and core.tableContains (tShoppingList, itemDef) == 0 and nHealthPercent < 0.6 and nManaPercent > 0.4 then
+				if not itemHealthPotion and core.tableContains (tShoppingList, itemDef) == 0 and nHealthPercent < 0.5 and nManaPercent > 0.4 then
 					local nCost = itemDef:GetCost()
 					
 					--check if we can afford them
@@ -719,7 +763,7 @@ function  shoppingLib.Autobuy()
 				--only buy mana, if we don't have some
 				local itemManaPotion = itemHandler:GetItem(sNameManaPotions, nil, true) or itemHandler:GetItem(sNameManaPotions, unitCourier)
 				local itemDef = HoN.GetItemDefinition(sNameManaPotions)
-				if not itemManaPotion and core.tableContains (tShoppingList, itemDef) == 0 and nManaPercent < 0.4 and nHealthPercent > 0.5 then
+				if not itemManaPotion and core.tableContains (tShoppingList, itemDef) == 0 and nManaPercent < 0.4 and nHealthPercent > 0.6 then
 					local nCost = itemDef:GetCost()
 					
 					if nMyGold >= nCost then

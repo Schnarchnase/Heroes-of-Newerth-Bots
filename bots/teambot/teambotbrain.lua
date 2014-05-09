@@ -229,7 +229,7 @@ function object:onthink(tGameVariables)
 			rune.bBetter = true
 		end
 	end
-
+	
 	if nTime and nTime > object.nRuneNextCheck then
 		object.nRuneNextCheck = object.nRuneNextCheck + object.nRuneCheckInterval
 		object.CheckRunes()
@@ -268,7 +268,7 @@ function object.CheckRunes()
 				rune.unit = nil
 				rune.bPicked = true
 			end
-		end
+		end	
 	end
 end
 

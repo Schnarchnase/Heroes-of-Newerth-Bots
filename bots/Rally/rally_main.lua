@@ -139,7 +139,7 @@ local function funcGetSlamRadius ()
 end
 
 local function funcCheckingRoarPrioity ()
-	local bDebugEchos = true
+	local bDebugEchos = false
 	
 	local teamBotBrain = core.teamBotBrain
 	if teamBotBrain then
@@ -289,9 +289,9 @@ object.nSlamUp = 18
 object.nFinishHim = 50
 object.nSpeedBonus = 5
 
-object.nCompellUse = 15
+object.nCompellUse = 20
 object.nRoarUse = 8
-object.nSlamUse = 5
+object.nSlamUse = 25
 
 object.nCompellOffensiveThreshold = 40
 object.nCompellDefensiveThreshold = 40
@@ -309,6 +309,8 @@ object.nHeroRangeSq = 1000*1000
 -- utility malus per enemy hero near target
 object.nEnemyThreat = 10
 
+object.nMeleeHarassBenousRangeSq = 200*200
+
 behaviorLib.nCreepPushbackMul = 0.5
 
 object.nTrueDamgaTaken = 0
@@ -319,17 +321,17 @@ function object.UpdateDamageObservation(EventData)
 	local sDamageType = EventData.DamageType
 	local nDamageApplied = EventData.DamageApplied
 	if sDamageType == "Physical" then
-		BotEcho("Getting hit by physical damage!")
+		--BotEcho("Getting hit by physical damage!")
 		object.nPhysicalDamageTaken= object.nPhysicalDamageTaken + nDamageApplied
 	elseif sDamageType == "Magic" then
-		BotEcho("Getting hit by magical damage!")
+		--BotEcho("Getting hit by magical damage!")
 		object.nMagicalDamageTaken = object.nMagicalDamageTaken + nDamageApplied
 	else
 		--True Damage?
 		object.nTrueDamgaTaken = object.nTrueDamgaTaken + nDamageApplied
-		BotEcho("Is this true damage?")
+		--BotEcho("Is this true damage?")
 	end
-	BotEcho("Damage Attempted: "..tostring(EventData.DamageAttempted).." and Applied: "..tostring(nDamageApplied))
+	--BotEcho("Damage Attempted: "..tostring(EventData.DamageAttempted).." and Applied: "..tostring(nDamageApplied))
 end
 
 --Arachna ability use gives bonus to harass util for a while
@@ -339,11 +341,11 @@ function object:oncombateventOverride(EventData)
 	local nAddBonus = 0
 	
 	if EventData.Type == "Damage" then
-		local bIsHero = EventData.SourceUnit and EventData.SourceUnit:IsHero()
-		if bIsHero and EventData.TargetUnit == core.unitSelf.unit then
-			eventsLib.printCombatEvent(EventData)
+		local unitSource = EventData.SourceUnit
+		if unitSource and unitSource:IsHero()then
+			object.UpdateDamageObservation(EventData)
+			--eventsLib.printCombatEvent(EventData)
 		end
-		object.UpdateDamageObservation(EventData)
 	end
 	
 	if EventData.Type == "Ability" then
@@ -367,7 +369,6 @@ end
 object.oncombateventOld = object.oncombatevent
 object.oncombatevent 	= object.oncombateventOverride
 
-object.nMeleeHarassBenousRangeSq = 200*200
 --Util override
 local function CustomHarassUtilityOverride(unitTarget)
 	local nUtility = 0
@@ -417,8 +418,6 @@ local function CustomHarassUtilityOverride(unitTarget)
 	if nEnemyCurrentHP then
 		
 		nUtility = nUtility + (1-nEnemyCurrentHP/tEnemyInformation.nMaxHealth) * 15
-		
-		
 		
 		local nMyMana = unitSelf:GetMana()
 		local nNeededMana = 0
@@ -750,12 +749,14 @@ function behaviorLib.RetreatFromThreatExecuteOverride(botBrain)
 	
 	local unitTarget = behaviorLib.heroTarget
 	if unitTarget == nil or not unitTarget:IsValid() then
+		BotEcho("NO TARGETOFJPOFJ")
 		return false 
 	end
 	
 	--get unitTarget information from teamBotBrain
 	local teamBotBrain = core.teamBotBrain
 	if not teamBotBrain then
+		BotEcho("NoTeambot!!!!")
 		return false
 	end
 	
@@ -826,28 +827,31 @@ behaviorLib.HealAtWellBehavior["Execute"] = HealAtWellExecuteFnOverride
 behaviorLib.nRuneGrabRange = 1500
 -- 30 if there is rune within 1000 and we see it
 local function PickRuneUtilityOverride(botBrain)
-
-	-- [Difficulty: Easy] Bots do not get runes on easy
-	if core.nDifficulty == core.nEASY_DIFFICULTY then
-		return 0
-	end
 	
 	local nRuneGrabRange = behaviorLib.nRuneGrabRange
 	--bottle? check rune frequently
 	local itemBottle = core.GetItem("Item_Bottle")
 	if itemBottle then
-		nRuneGrabRange = nRuneGrabRange + 1500
+		nRuneGrabRange = nRuneGrabRange + 3000
+	elseif core.nDifficulty == core.nEASY_DIFFICULTY then
+		--easyBots don't take runes if they do not own a bottle!
+		return 0
 	end
 	
-		
-	local tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), false, true)
-	if tRune == nil or Vector3.Distance2DSq(tRune.vecLocation, core.unitSelf:GetPosition()) > nRuneGrabRange * nRuneGrabRange then
+	--certain runes
+	local tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), true, true)
+	
+	if not tRune then
+		tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), false, true)
+	end
+	
+	if not tRune or Vector3.Distance2DSq(tRune.vecLocation, core.unitSelf:GetPosition()) > nRuneGrabRange * nRuneGrabRange then
 		return 0
 	end
 
 	behaviorLib.tRuneToPick = tRune
 
-	return 35
+	return 36
 end
 behaviorLib.PickRuneBehavior["Utility"] = PickRuneUtilityOverride
 
@@ -863,7 +867,6 @@ local function PickRuneExecuteOverride(botBrain)
 	if not HoN.CanSeePosition(vecRunePosition) or not tRune.unit then
 		return behaviorLib.MoveExecute(botBrain, vecRunePosition)
 	elseif tRune.unit and tRune.unit:IsValid() then
-		BotEcho("Touching")
 		return core.OrderTouch(botBrain, unitSelf, tRune.unit)
 	else 
 		return false
@@ -885,6 +888,7 @@ function object.SavingAlliesUtility(botBrain)
 	if nAlliesNear > 0 then
 		local funcTimeToLive = life.funcTimeToLiveUtility
 		for _, unitAlly in pairs(tAlliesNear) do
+			--ToDO: Don't save illusions...
 			--Isn't there a Restrained bool?or unitAlly:IsRestrained()
 			local bAllyIsInvalid = unitAlly:IsImmobilized()  or object.isMagicImmune(unitAlly)
 			local nUtilityAlly = not bAllyIsInvalid and funcTimeToLive(unitAlly)
@@ -966,6 +970,7 @@ local function funcCheckSurvivalItem (tItemDecisions)
 	if nNow and nNow > nItemuilddamageTime then
 		local nTimeSpan = nNow - nItemuilddamageTime
 		object.nItemuilddamageTime = nNow
+		BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
 		if nMagicPercent > 0.6 and nMaxHP >= 1000 then
 			BotEcho("Magic Percent :"..tostring(nMagicPercent))
 			return "magic"
@@ -976,7 +981,6 @@ local function funcCheckSurvivalItem (tItemDecisions)
 			BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
 			return "hp"
 		else
-			BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
 			BotEcho("Nothing to worry about")
 			return "none"
 		end
@@ -1097,7 +1101,7 @@ local function RallyItemBuild()
 			return true
 		elseif not tItemDecisions.bPlateMail and not tItemDecisions.bFrostfield then
 			tinsert(shoppingLib.tItembuild, "Item_Platemail")
-			tItemDecisions.bFrostfield = true
+			tItemDecisions.bPlateMail = true
 			if bDebugInfo then BotEcho("Need Platemail!!") end
 			return true
 		elseif not tItemDecisions.bFrostfield then

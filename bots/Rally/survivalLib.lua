@@ -7,7 +7,7 @@ local ceil, floor, pi, tan, atan, atan2, abs, cos, sin, acos, max, random
 	= _G.math.ceil, _G.math.floor, _G.math.pi, _G.math.tan, _G.math.atan, _G.math.atan2, _G.math.abs, _G.math.cos, _G.math.sin, _G.math.acos, _G.math.max, _G.math.random
 
 object.life = object.life or {}
-local life, core, behaviorLib = object.life, object.core, object.behaviorLib
+local life, core, behaviorLib, eventsLib = object.life, object.core, object.behaviorLib, object.eventsLib
 local BotEcho = core.BotEcho
 local Clamp = core.Clamp
 
@@ -147,7 +147,7 @@ function life.GetLifeTimeTendency(tLife)
 		nTendenz = (nTendenz + nHPLostInTimeSpan) / 2
 	elseif nTendenz < nHPLostInTimeSpan * life.nTimeToLiveRelaxTreshold then
 		--We getting less and less damage
-		nTendenz = (nHPLostInTimeSpan + nTendenz) / 2
+		nTendenz = (2*nHPLostInTimeSpan + nTendenz) / 3
 	else
 		nTendenz = nHPLostInTimeSpan 
 	end
@@ -233,14 +233,58 @@ life.nTowerAggroUtility = 15
 life.CreepThreatMultiplicator = 4
 life.nDangerousStatesMalus = 15
 local function CustomRetreatFromThreatUtilityFnOverride(botBrain)
-	local bDebugEchos = false
-	local bCompareOldToNew = true
-			
+	local bDebugEchos = true
+	local bCompareOldToNew = false
+	
+	local unitSelf = core.unitSelf
+	
+	--[[
+	local bDebugExpectedDamage=true
+	--Expected damage in near future -- IMPOSSIBLE ATM! No damage information on projectiles
+	-------------------------------------
+	local nExpectedDamage = 0
+	local nUtilityDamageExpected = 0
+	
+	local nDamageTrue = 0
+	local nDamagePhysical = 0
+	local nDamagenMagical = 0
+	local tIncomingProjectiles = eventsLib.incomingProjectiles["all"]
+	for _, tEventData in pairs (tIncomingProjectiles) do
+			eventsLib.printCombatEvent(tEventData)
+		local nDamage = tEventData.DamageAttempted
+		if nDamage then
+			local sType = tEventData.DamageType
+			if sType =="Physical" or sType=="SuperiorMagic" then
+				nDamagePhysical = nDamagePhysical + nDamage
+				if bDebugExpectedDamage then BotEcho("Physical Damage: "..tostring(nDamage)) end
+			elseif sType =="Magic" or sType=="SuperiorPhysical" then
+				nDamagenMagical = nDamagenMagical + nDamage
+				if bDebugExpectedDamage then BotEcho("Magical Damage: "..tostring(nDamage)) end
+			elseif sType=="Attack" or sType=="Returned" then
+				nDamageTrue = nDamageTrue + nDamage
+				if bDebugExpectedDamage then BotEcho("True Damage: "..tostring(nDamage)) end
+			end
+		end
+	end
+	nExpectedDamage = nDamageTrue + nDamagePhysical*(1-unitSelf:GetPhysicalResistance())+
+						nDamagenMagical*(1-unitSelf:GetMagicResistance())
+						
+	if bDebugExpectedDamage then BotEcho("Expected Damage after reduction: "..tostring(nExpectedDamage)) end
+
+	if nExpectedDamage > 0 then
+		local nHP = unitSelf:GetHealth()
+		nUtilityDamageExpected = 150 * nHP / nExpectedDamage
+		if bDebugExpectedDamage then BotEcho("utility damage expected"..tostring(nUtilityDamageExpected)) end
+	end
+	
+	
+	-------------------------------------
+	--]]
+	
 	local nUtilityLifeTime, nTimeToLive = life.funcTimeToLiveUtility(core.unitSelf)
 	
 	if bDebugEchos then BotEcho("RetreatUtility: TimeToLive:"..tostring(nTimeToLive).." Utility Points: "..tostring(nUtilityLifeTime)) end
 	
-	local unitSelf = core.unitSelf
 	local nMyID = unitSelf:GetUniqueID()
 	--local tDangerousStates = life.funcUnitDangerousStatesApplied(unitSelf)
 	--local nDangerousStates = core.NumberElements(tDangerousStates) * object.nDangerousStatesMalus
@@ -252,7 +296,7 @@ local function CustomRetreatFromThreatUtilityFnOverride(botBrain)
 	
 	--Creep aggro
 	local nCreepAggro = 0
-	for id, unitEnemyCreep in pairs(tEnemyCreeps) do
+	for _, unitEnemyCreep in pairs(tEnemyCreeps) do
 		local unitAggroTarget = unitEnemyCreep:GetAttackTarget()
 		if unitAggroTarget and unitAggroTarget:GetUniqueID() == nMyID then
 			nCreepAggro = nCreepAggro + 1
@@ -272,7 +316,7 @@ local function CustomRetreatFromThreatUtilityFnOverride(botBrain)
 		end
 	end
 	
-	local nUtility  = nUtilityLifeTime + nCreepAggroUtility + nTowerAggroUtility --+ nDangerousStates 
+	local nUtility  = nUtilityLifeTime + nCreepAggroUtility + nTowerAggroUtility --+ nDangerousStates + nUtilityDamageExpected
 	
 	if bDebugEchos then BotEcho("..Tower Aggro: +"..tostring(nTowerAggroUtility)) end
 	
