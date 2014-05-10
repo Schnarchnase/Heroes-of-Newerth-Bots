@@ -4,6 +4,8 @@
 description:
 
 credits:
+DarkFire: GetSkillPosition (basis version from Wretched Hag
+St0l3n_ID: Angle Between (basis version from Chronos)
 
 versions history:
 v.01: initial release
@@ -50,6 +52,7 @@ runfile "bots/behaviorLib.lua"
 runfile "bots/Rally/survivalLib.lua"
 local life = object.life
 local shoppingLib = object.shoppingLib
+local itemHandler = object.itemHandler
 
 local core, eventsLib, behaviorLib, metadata, skills = object.core, object.eventsLib, object.behaviorLib, object.metadata, object.skills
 
@@ -294,8 +297,8 @@ object.nRoarUse = 8
 object.nSlamUse = 25
 
 object.nCompellOffensiveThreshold = 40
-object.nCompellDefensiveThreshold = 40
-object.nRoarDefensiveThreshold = 35
+object.nCompellDefensiveThreshold = 70
+object.nRoarDefensiveThreshold = 60
 object.nSlamThreshold = 70
 
 ----------------------------------
@@ -501,7 +504,7 @@ local function CustomHarassUtilityOverride(unitTarget)
 	
 	return nUtility
 end
-behaviorLib.CustomHarassUtility = CustomHarassUtilityOverride   
+behaviorLib.CustomHarassUtility = CustomHarassUtilityOverride
 
 ----------------------------------
 --	Arachna harass actions
@@ -568,17 +571,18 @@ local function HarassHeroExecuteOverride(botBrain)
 	
 	
 	local bTargetRooted = unitTarget:IsStunned() or unitTarget:IsImmobilized() or unitTarget:GetMoveSpeed() < 200
+	local tLocalHeroes = core.localUnits["EnemyHeroes"]
 	
-	core.DrawDebugArrow(vecMyPosition, vecMyPosition + vecTargetLocation, 'teal')
 	--use Compell
 	if not bActionTaken and  abilCompell:CanActivate() and nLastHarassUtility >= object.nCompellOffensiveThreshold then
 		--use compel to kill
 		local nAutoHitDamage = unitSelf:GetFinalAttackDamageMin()
 		if nTargetEHP < funcGetCompellDamage(abilCompell:GetLevel()) + 2*nAutoHitDamage and nTargetDistanceSq < 600*600 then
-			core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetLocation)
+			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetLocation)
 			object.nCompellTime = nNow
-		elseif not bTargetRooted and nTargetDistanceSq < nCompellStunRangeSq and nTargetDistanceSq > 300*300 then
-			core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetLocation)
+		else 
+			local vecTargetPosition = object.GetSkillPosition (tLocalHeroes, vecMyPosition, 500, 125, 1)
+			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetPosition or vecTargetLocation)
 			object.nCompellTime = nNow
 		end
 	end
@@ -594,14 +598,27 @@ local function HarassHeroExecuteOverride(botBrain)
 		end
 	end
 	
+	--
+	--
 	--use Slam
 	local abilSlam = skills.abilSlam
-	if not bActionTaken and  abilSlam:CanActivate() and nLastHarassUtility >= object.nSlamThreshold and bTargetRooted then
+	if not bActionTaken and  abilSlam:CanActivate() and nLastHarassUtility >= object.nSlamThreshold then
+		
 		local nSlamRadius = funcGetSlamRadius()
+		local vecTargetPosition = object.GetSkillPosition (tLocalHeroes, vecMyPosition, nSlamRadius, 130, 1, nNow+1250, true)
+		if vecTargetPosition then
+			BotEcho("Doing SLAM")
+			core.DrawXPosition(vecTargetPosition)
+			bActionTaken = core.OrderAbilityPosition(botBrain, abilSlam, vecTargetPosition+vecMyPosition)
+			object.nSlamTime = nNow
+		end
+		
+		--[[
 		if nTargetDistanceSq < nSlamRadius*nSlamRadius then
 			bActionTaken = core.OrderAbilityPosition(botBrain, abilSlam, vecEnemyPosition)
 			object.nSlamTime = nNow
 		end
+		--]]
 	end
 	
 	--use Roar
@@ -620,154 +637,255 @@ local function HarassHeroExecuteOverride(botBrain)
 end
 object.harassExecuteOld = behaviorLib.HarassHeroBehavior["Execute"]
 behaviorLib.HarassHeroBehavior["Execute"] = HarassHeroExecuteOverride
---[[
---hunting/grouphunting util
-function object.funcCheckRequirementsToGank()
-	local unitSelf = core.unitSelf
-	local nHPPercent = unitSelf:GetHealthPercent()
-	local nMana =  unitSelf:GetMana()
+
+
+--push utility
+local function PushOverride(botBrain)
+	local bDebug = true
+	local nUtility = object.PushOldUtility(botBrain)
 	
-	if nHPPercent < 0.4 or nMana < 130 then
-		return 0
+	object.bPushHeavy = false
+	
+	--Push hard if the rune will spawn
+	local itemBottle = itemHandler.GetItem("Item_Bottle")
+	if itemBottle then
+		local nNow = HoN.GetMatchTime()
+	
+		local nCurrentTwoMinuteCycle = floor(nNow / 1000)%120
+	
+		if nCurrentTwoMinuteCycle > 100 then
+			--push hard for rune
+			if bDebug then BotEcho("Pushing hard for rune spwaen! ") end
+			nUtility = nUtility + 10 
+			object.bPushHeavy = true
+		end
 	end
 	
-	local nGankRange = 0
-	
-	local abilCompell = skills.abilCompell
-	local abilRoar = skills.abilRoar
-	local abilSlam = skills.abilSlam
-	
-	local nCompellManaCost = abilCompell:GetManaCost()
-	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
-		nGankRange = nGankRange + 600
-		nMana = nMana - nCompellManaCost
-	end
-	
-	local itemRange = core.GetItem("Item_PortalKey") or core.GetItem("Item_Stealth") or core.GetItem("Item_Sasuke")
-	local nItemRangeManaCost = itemRange and itemRange:GetManaCost() 
-	if itemRange and itemRange:CanActivate() and nMana >= nItemRangeManaCost then
-		nGankRange = nGankRange + 1500
-		nMana = nMana - nItemRangeManaCost
-	end
-	
-	local nSlamManaCost = abilSlam:GetManaCost()
-	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
-		nGankRange = nGankRange + 2000
-		nMana = nMana - nSlamManaCost
-	end
-	
-	local nRoarManaCost = abilRoar:GetManaCost()
-	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
-		nGankRange = nGankRange + 400
-	end
-	
-	if nHPPercent > 0.9 then
-		nGankRange  = nGankRange + 1000
-	end
-	
-	return nGankRange
+	return nUtility
+end
+object.PushOldUtility = behaviorLib.PushUtility
+behaviorLib.PushUtility = PushOverride
+
+-- Find the angle in degrees between two targets. Modified from St0l3n_ID's AngToTarget code
+local function AngleBetween(vecSelf, vecTarget)
+	local nDeltaY = vecTarget.y - vecSelf.y
+	local nDeltaX = vecTarget.x - vecSelf.x
+ 
+	return floor(core.RadToDeg(atan2(nDeltaY, nDeltaX)))
 end
 
-function object.GetGankingPower(tEnemyInformation)
+--Credits to DarkFire for his basis version 
+function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow, bWidthAsDegree)
 	
-	if not tEnemyInformation then return end
+	if not tTargets or not nRange or not nWidth then
+		return
+	end
+	
+	if not nNow then
+		nNow = HoN.GetGameTime()
+	end
+	
+	if not nMin then
+		nMin = 1
+	end
+	
+	if core.NumberElements(tTargets) < nMin then 
+		BotEcho("Not enough targets, but Min: "..tostring(nMin).."Minimum: "..tostring(#tTargets))
+		return
+	end
+	
+	local unitSelf = core.unitSelf
+	local vecMyPosition = vecCenter or unitSelf:GetPosition()
+	
+	--getTembot
+	local teamBotBrain = core.teamBotBrain
+	if not teamBotBrain then 
+		return 
+	end
+	
+	--Get all units in range
+	local tUnitsInRangeVectors = {}
+	local nRangesq = nRange*nRange
+	for _, unit in pairs (tTargets) do
+		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow)
+		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangesq then
+			BotEcho("insert unit in range")
+			tinsert(tUnitsInRangeVectors, vecPosition)
+		end
+	end
+	
+	if #tUnitsInRangeVectors < nMin then
+		return
+	end
+	
+	--this makes it easier in the loop
+	if bWidthAsDegree then
+		nWidth = nWidth / 2
+	end
+	
+	local tAnglesOfUnits = {}
+	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
+		if bWidthAsDegree then
+			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
+			BotEcho("Unit in Range, taking Angle")
+			tinsert(tAnglesOfUnits, {nMidAngle+nWidth, nMidAngle, nMidAngle-nWidth})
+		else
+			local vecDirection = Vector3.Normalize(vecPosition - vecMyPosition)
+			vecDirection = core.RotateVec2DRad(vecDirection, pi / 2)
+			
+			local nHighAngle = AngleBetween(vecMyPosition, vecPosition + vecDirection * nWidth)
+			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
+			local nLowAngle = AngleBetween(vecMyPosition, vecPosition - vecDirection * nWidth)
+			BotEcho("Unit in Range, taking Angle")
+			tinsert(tAnglesOfUnits, {nHighAngle, nMidAngle, nLowAngle})
+		end
+	end
+	
+	--pull this change back
+	if bWidthAsDegree then
+		nWidth = nWidth * 2
+	end
+	
+	local tBestGroup = {}
+	local tCurrentGroup = {}
+	
+	for _,tStartAngles in ipairs (tAnglesOfUnits) do
+		local nStartAngle = tStartAngles[1]
+		local nEndAngle = tStartAngles[3]
+		if nStartAngle <= -90 then
+			nStartAngle = nStartAngle + 360
+			nEndAngle = nEndAngle + 360
+		end
+		
+		for _,tAngles in ipairs (tAnglesOfUnits) do
+		
+			local nHighAngle = tAngles[1]
+			local nMidAngle = tAngles[2]
+			local nLowAngle = tAngles[3]
+			
+			if nStartAngle > 90 and nStartAngle < 270  then
+				-- Avoid doing calculations near the break in numbers
+				if nHighAngle < 0 then
+					nHighAngle = nHighAngle + 360
+				end
+				   
+				if nMidAngle < 0 then
+					nMidAngle = nMidAngle + 360
+				end
+				   
+				if nLowAngle < 0 then
+					nLowAngle = nLowAngle + 360
+				end
+			end
+			
+			if (nStartAngle <= nMidAngle and nMidAngle <= nEndAngle) 
+				or (nHighAngle >= nStartAngle and nLowAngle <= nStartAngle) 
+				or (nHighAngle >= nEndAngle and nLowAngle <= nEndAngle) then
+				
+				tinsert(tCurrentGroup, nMidAngle)
+			end
+		end
+	
+		if #tCurrentGroup > #tBestGroup then
+			tBestGroup = tCurrentGroup
+		end
+		
+		tCurrentGroup = {}
+	end
+	
+	local nBestGroupSize = #tBestGroup
+	
+	if  nBestGroupSize >= nMin then
+		tsort(tBestGroup)
+			 
+		local nAvgAngle = core.DegToRad((tBestGroup[1] + tBestGroup[nBestGroupSize]) / 2)
+		BotEcho("Found vector")
+		return Vector3.Create(cos(nAvgAngle), sin(nAvgAngle)) * nRange
+	end	
+end
+
+--PushExec
+local function PushExecuteOverride(botBrain) 
+	local bActionTaken = false
+	
+	if object.bPushHeavy then
+		local unitSelf = core.unitSelf
+		local nMyMana = unitSelf:GetMana()
+		
+		local tLocalHeroes = core.localUnits["EnemyHeroes"]
+		local tLocalEnemyCreeps = core.localUnits["EnemyCreeps"]
+		core.InsertToTable(tLocalEnemyCreeps, tLocalHeroes)
+		local vecMyPosition = unitSelf:GetPosition()
+		
+		--object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow, bWidthAsDegree)
+		--Stun
+		local abilCompell = skills.abilCompell
+		if abilCompell:CanActivate() and nMyMana > 280 then
+			local vecPosition = object.GetSkillPosition (tLocalEnemyCreeps,vecMyPosition, 600, 120, 3)
+			if vecPosition then
+				bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPosition)
+			end
+		end
+		
+		--Roar
+		local abilRoar = skills.abilRoar
+		if not bActionTaken and abilRoar:CanActivate() and nMyMana > 240 
+			and core.NumberElements(tLocalEnemyCreeps) > 4 then
+			local vecCenter = core.GetGroupCenter(tLocalEnemyCreeps)
+			if vecCenter and Vector3.Distance2DSq(vecMyPosition, vecCenter) < 80*80 then
+				bActionTaken = core.OrderAbility(botBrain, abilRoar)
+			else
+				bActionTaken = vecCenter and core.OrderMoveToPos(botBrain, unitSelf, vecCenter)
+			end
+		end
+		
+		--Frostfield
+		local itemFrostfieldPlate = itemHandler.GetItem("Item_FrostfieldPlate")
+		if not bActionTaken and itemFrostfieldPlate and abilRoar:CanActivate() and nMyMana > 240 
+			and core.NumberElements(tLocalEnemyCreeps) > 4 then
+			local vecCenter = core.GetGroupCenter(tLocalEnemyCreeps)
+			if vecCenter and Vector3.Distance2DSq(vecMyPosition, vecCenter) < 80*80 then
+				bActionTaken = core.OrderItemClamp(botBrain, unitSelf, itemFrostfieldPlate)
+			else
+				bActionTaken = vecCenter and core.OrderMoveToPos(botBrain, unitSelf, vecCenter)
+			end
+		end
+	end
+	
+	if not bActionTaken then
+		return object.PushOldExecute(botBrain)
+	end	
+end
+object.PushOldExecute = behaviorLib.PushExecute
+behaviorLib.PushExecute = PushExecuteOverride
+
+--Retreat exec
+local function RetreatFromThreatExecuteOverride(botBrain)
+	
 	local unitSelf = core.unitSelf
 	
-	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition
+	--Portal Key: Port away
+	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler.GetItem("Item_PortalKey"))
+		
 	local vecMyPosition = unitSelf:GetPosition()
 	
-	local vecDistance = vecEnemyPosition - vecMyPosition
-	
-	--Get Length of vector
-	local nDistanceY = vecDistance.y
-	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
-	
-	--Basic Arrival Time
-	local nArrivalTime = nDistance / unitSelf:GetMoveSpeed() * 1000
-	local nBurst = 0
-	local nDPS = 0
-	local nLockDown = 0
-	
+	--Compell home
 	local abilCompell = skills.abilCompell
-	local abilRoar = skills.abilRoar
-	local abilSlam = skills.abilSlam
-	
-	local nCompellManaCost = abilCompell:GetManaCost()
-	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
-		local nLevel = abilCompell:GetLevel()
-		nLockDown = funcGetCompellStun(nLevel)
-		nBurst = funcGetCompellDamage(nLevel)
-		nMana = nMana - nCompellManaCost
+	if not bActionTaken and abilCompell:CanActivate() and object.nCompellDefensiveThreshold < life.lastRetreatUtil then
+		local vecBackUp= behaviorLib.PositionSelfBackUp()
+		local vecPos = behaviorLib.GetSafeBlinkPosition(vecBackUp, 600) - vecMyPosition
+		bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPos)
+	end	
+		
+	if bActionTaken then 
+		return bActionTaken
 	end
 		
-	local nSlamManaCost = abilSlam:GetManaCost()
-	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
-		nBurst = nBurst + funcGetCompellDamage(abilSlam:GetLevel())
-		nLockDown = nLockDown > 0 and nLockDown - 750 or 0
-		nMana = nMana - nSlamManaCost
-	end
-	
-	local nRoarManaCost = abilRoar:GetManaCost()
-	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
-		nBurst = nBurst + funcGetRoarDamage(abilRoar:GetLevel())
-		nLockdown = nLockdown + 500 
-	end
-	
-	local nDamage = core.GetFinalAttackDamageAverage(unitSelf)
-	local nAttacksPerSecond = core.GetAttacksPerSecond(unitSelf)
-	local DPS = nDamage * nAttacksPerSecond
-	
-	local nArmor = tEnemyInformation.nPArmor
-	
-	--burst, dps, lockdown, TimeToArrive
-	return 600, 55, 3, 10000
-end
---]]
---[[
---hunting exec
-function object.HuntingUtility(botBrain)
-	return core.teamBotBrain.HuntingUtility(botBrain)
-end
- 
-function object.HuntingExe(botBrain)
-	local tHunting = core.teamBotBrain.GetHuntingStatus(botBrain)
-	
-	BotEcho("tHunting")
-end
- 
-behaviorLib.Hunting = {}
-behaviorLib.Hunting["Utility"] = object.HuntingUtility
-behaviorLib.Hunting["Execute"] = object.HuntingExe
-behaviorLib.Hunting["Name"] = "Hunting"
-tinsert(behaviorLib.tBehaviors, behaviorLib.Hunting) 
---Push Exec
---]]
---Retreat exec
-function behaviorLib.RetreatFromThreatExecuteOverride(botBrain)
-	
-	local unitSelf = core.unitSelf
-	
 	local unitTarget = behaviorLib.heroTarget
-	if unitTarget == nil or not unitTarget:IsValid() then
-		BotEcho("NO TARGETOFJPOFJ")
+	local teamBotBrain = core.teamBotBrain
+	if unitTarget == nil or not unitTarget:IsValid() or not teamBotBrain then
 		return false 
 	end
-	
-	--get unitTarget information from teamBotBrain
-	local teamBotBrain = core.teamBotBrain
-	if not teamBotBrain then
-		BotEcho("NoTeambot!!!!")
-		return false
-	end
-	
-	
-	local vecMyPosition = unitSelf:GetPosition()
-	--Compell out
-	local abilCompell = skills.abilCompell
-	if abilCompell:CanActivate() and object.nCompellDefensiveThreshold < behaviorLib.lastRetreatUtil then
-		local vecPos = (behaviorLib.PositionSelfBackUp() - vecMyPosition) 
-		return core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPos)
-	end		
 	
 	local nID = unitTarget:GetUniqueID()
 	local tEnemyInformation = teamBotBrain.tEnemyInformationTable[nID]
@@ -776,7 +894,7 @@ function behaviorLib.RetreatFromThreatExecuteOverride(botBrain)
 	
 	--Slow down speedy
 	local abilRoar = skills.abilRoar
-	if not bActionTaken and abilRoar:CanActivate() and object.nRoarDefensiveThreshold < behaviorLib.lastRetreatUtil then
+	if abilRoar:CanActivate() and object.nRoarDefensiveThreshold < life.lastRetreatUtil then
 		local nRange = 500
 		if nTargetDistanceSq < nRange*nRange then
 			return core.OrderAbility(botBrain, abilRoar)
@@ -785,41 +903,40 @@ function behaviorLib.RetreatFromThreatExecuteOverride(botBrain)
 	
 	return false
 end
-behaviorLib.CustomRetreatExecute = behaviorLib.RetreatFromThreatExecuteOverride
+behaviorLib.CustomRetreatExecute = RetreatFromThreatExecuteOverride
 
 
 ------------------------------------------------------------------
 --Heal at well execute
 ------------------------------------------------------------------
-local function HealAtWellExecuteFnOverride(botBrain)
-	
+local function ReturnToHealAtWell(botBrain)
 	local unitSelf = core.unitSelf
-	local vecMyPosition = unitSelf:GetPosition()
-	local vecWellPos = core.allyWell and core.allyWell:GetPosition() or behaviorLib.PositionSelfBackUp()
-	local nDistanceWellSq =  Vector3.Distance2DSq(vecMyPosition, vecWellPos)
-
-	--marcher hom
-	local itemGhostMarchers = core.GetItem("Item_EnhancedMarchers")
-	if itemGhostMarchers and itemGhostMarchers:CanActivate() and nDistanceWellSq > (500 * 500) then
-		return core.OrderItemClamp(botBrain, unitSelf, itemGhostMarchers)
-	end
-
+	
 	--Portal Key: Port away
-	local itemPK = core.GetItem("Item_PortalKey")
-	if itemPK and itemPK:CanActivate() and nDistanceWellSq > (1000 * 1000)  then
-		return core.OrderItemPosition(botBrain, unitSelf, itemPK, vecWellPos)
-	end
+	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler.GetItem("Item_PortalKey"))
 	
 	--Compell home
 	local abilCompell = skills.abilCompell
-	if abilCompell:CanActivate() and nDistanceWellSq > (600 * 600) then
-		local vecPos = vecWellPos - vecMyPosition
-		return core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPos)
+	if not bActionTaken and abilCompell:CanActivate() then
+		local vecTarget = behaviorLib.GetSafeBlinkPosition(core.allyWell:GetPosition(), 600)
+		local vecMyPosition = unitSelf:GetPosition()
+		local vecPos = vecTarget - vecMyPosition
+		bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPos)
 	end	
 	
-	return core.OrderMoveToPosAndHoldClamp(botBrain, unitSelf, vecWellPos, false)
+	return bActionTaken
 end
-behaviorLib.HealAtWellBehavior["Execute"] = HealAtWellExecuteFnOverride
+behaviorLib.CustomReturnToWellExecute = ReturnToHealAtWell
+
+local function HealAtWellExecute(botBrain)
+	local itemBottle = core.GetItem("Item_Bottle")
+	if itemBottle and not core.unitSelf:HasState("State_Bottle") and itemBottle:GetActiveModifierKey() ~= "bottle_empty" then
+		return core.OrderItemClamp(botBrain, core.unitSelf, itemBottle)
+	end
+	
+	return false
+end
+behaviorLib.CustomHealAtWellExecute = HealAtWellExecute
 
 --no bottle on easy!!!
 
@@ -837,6 +954,8 @@ local function PickRuneUtilityOverride(botBrain)
 		--easyBots don't take runes if they do not own a bottle!
 		return 0
 	end
+	
+	--ToDo: Different Bottle States!!!
 	
 	--certain runes
 	local tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), true, true)
@@ -1293,13 +1412,19 @@ function object:onthinkOverride(tGameVariables)
 			local vecExpectedPositon = teamBotBrain.funcGetUnitPosition (unitHeroTarget, nSlamTime+1250)
 			local vecMyPosition = core.unitSelf:GetPosition()
 			local nSlamRadius = funcGetSlamRadius()
-			if not vecExpectedPositon or Vector3.Distance2DSq(vecExpectedPositon, vecMyPosition) >
-				nSlamRadius*nSlamRadius then
-			object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
+			local nRangeSq = vecExpectedPositon and Vector3.Distance2DSq(vecExpectedPositon, vecMyPosition)
+			if not nRangeSq or nRangeSq  > nSlamRadius*nSlamRadius or nRangeSq < 900 then
+				object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
 			end
+			core.DrawXPosition(vecExpectedPositon)
+		end
+		if unitHeroTarget then
+		
+			local vecPosition = teamBotBrain.funcGetUnitPosition (unitHeroTarget)
+			core.DrawXPosition(vecPosition,"yellow")
 		end
 	end
-
+	
 end
 object.onthinkOld = object.onthink
 object.onthink 	= object.onthinkOverride

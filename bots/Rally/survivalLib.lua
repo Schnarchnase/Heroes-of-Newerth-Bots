@@ -233,7 +233,7 @@ life.nTowerAggroUtility = 15
 life.CreepThreatMultiplicator = 4
 life.nDangerousStatesMalus = 15
 local function CustomRetreatFromThreatUtilityFnOverride(botBrain)
-	local bDebugEchos = true
+	local bDebugEchos = false
 	local bCompareOldToNew = false
 	
 	local unitSelf = core.unitSelf
