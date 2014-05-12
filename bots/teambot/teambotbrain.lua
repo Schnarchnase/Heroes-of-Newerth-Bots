@@ -818,13 +818,16 @@ function object.CalculateDefense(unitHero)
 end
 
 function object.DPSThreat(unitHero)
-	local nDamage = core.GetFinalAttackDamageAverage(unitHero)
-	local nAttacksPerSecond = core.GetAttacksPerSecond(unitHero)
-	local nDPS = nDamage * nAttacksPerSecond
-	
-	--BotEcho(format("%s dps: %d  aps: %g  dmg: %d", unitHero:GetTypeName(), nDPS, nAttacksPerSecond, nDamage))
-	
-	return nDPS * 25
+	if object:CanSeeUnit(unitHero.object or unitHero) then
+		local nDamage = core.GetFinalAttackDamageAverage(unitHero)
+		local nAttacksPerSecond = core.GetAttacksPerSecond(unitHero)
+		local nDPS = nDamage * nAttacksPerSecond
+		
+		--BotEcho(format("%s dps: %d  aps: %g  dmg: %d", unitHero:GetTypeName(), nDPS, nAttacksPerSecond, nDamage))
+		
+		return nDPS * 25
+	end
+	return 0
 end
 
 
@@ -2110,7 +2113,7 @@ object.tItemReservations = {
 	
 function object.ReserveItem(itemName)
 	
-	local debugTeamBotBrain = true
+	local debugTeamBotBrain = false
 	
 	if not itemName then return false end
 	

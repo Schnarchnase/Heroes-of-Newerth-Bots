@@ -6,7 +6,7 @@ luafunctions
 description:
 
 credits:
-DarkFire: GetSkillPosition (basis version from Wretched Hag
+DarkFire: GetAbilPosition (basis version from Wretched Hag
 St0l3n_ID: Angle Between (basis version from Chronos)
 
 versions history:
@@ -295,7 +295,7 @@ object.nSpeedBonus = 5
 
 object.nCompellUse = 20
 object.nRoarUse = 8
-object.nSlamUse = 25
+object.nSlamUse = 60
 
 object.nCompellOffensiveThreshold = 40
 object.nCompellDefensiveThreshold = 70
@@ -587,7 +587,7 @@ local function HarassHeroExecuteOverride(botBrain)
 			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetLocation)
 			object.nCompellTime = nNow
 		else 
-			local vecTargetPosition = object.GetSkillPosition (tLocalHeroes, vecMyPosition, 500, 125, 1)
+			local vecTargetPosition = object.GetCompellPosition (tLocalHeroes, vecMyPosition, 500, 120, 1)
 			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetPosition or vecTargetLocation)
 			object.nCompellTime = nNow
 		end
@@ -611,9 +611,8 @@ local function HarassHeroExecuteOverride(botBrain)
 	if not bActionTaken and  abilSlam:CanActivate() and nLastHarassUtility >= object.nSlamThreshold then
 		
 		local nSlamRadius = funcGetSlamRadius()
-		local vecTargetPosition = object.GetSkillPosition (tLocalHeroes, vecMyPosition, nSlamRadius, 130, 1, nNow+1250, true)
+		local vecTargetPosition = object.GetSlamPosition (tLocalHeroes, vecMyPosition, nSlamRadius, 120, 1, nNow+1250)
 		if vecTargetPosition then
-			BotEcho("Doing SLAM")
 			core.DrawXPosition(vecTargetPosition)
 			bActionTaken = core.OrderAbilityPosition(botBrain, abilSlam, vecTargetPosition+vecMyPosition)
 			object.nSlamTime = nNow
@@ -664,7 +663,7 @@ local function PushOverride(botBrain)
 		if nCurrentTwoMinuteCycle > 100 then
 			--push hard for rune
 			if bDebug then BotEcho("Pushing hard for rune spwaen! ") end
-			nUtility = nUtility + 10 
+			nUtility = nUtility + 20 
 			object.bPushHeavy = true
 		end
 	end
@@ -688,9 +687,9 @@ local function AngleBetween(vecSelf, vecTarget)
 end
 
 --Credits to DarkFire for his basis version 
-function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow, bWidthAsDegree)
+function object.GetSlamPosition (tTargets, vecCenter, nRange, nDegree, nMin, nNow)
 	
-	if not tTargets or not nRange or not nWidth then
+	if not tTargets or not nRange or not nDegree then
 		return
 	end
 	
@@ -730,22 +729,10 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 	end
 	
 	local tAnglesOfUnits = {}
-	if bWidthAsDegree then
-		local nLoopWidth = nWidth / 2
-		for _, vecPosition in ipairs (tUnitsInRangeVectors) do
-			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
-			tinsert(tAnglesOfUnits, {nMidAngle+nLoopWidth, nMidAngle, nMidAngle-nLoopWidth})
-		end
-	else
-		for _, vecPosition in ipairs (tUnitsInRangeVectors) do
-			local vecDirection = Vector3.Normalize(vecPosition - vecMyPosition)
-			vecDirection = core.RotateVec2DRad(vecDirection, pi / 2)
-			
-			local nHighAngle = AngleBetween(vecMyPosition, vecPosition + vecDirection * nWidth)
-			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
-			local nLowAngle = AngleBetween(vecMyPosition, vecPosition - vecDirection * nWidth)
-			tinsert(tAnglesOfUnits, {nHighAngle, nMidAngle, nLowAngle})
-		end
+	local nLoopDegree = nDegree / 2
+	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
+		local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
+		tinsert(tAnglesOfUnits, {nMidAngle+nLoopDegree, nMidAngle, nMidAngle-nLoopDegree})
 	end
 		
 	local tBestGroup = {}
@@ -805,6 +792,91 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 	end	
 end
 
+--Credits to DarkFire for his basis version 
+function object.GetCompellPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow)
+	
+	if not tTargets or not nRange or not nWidth then
+		return
+	end
+	
+	if not nNow then
+		nNow = HoN.GetGameTime()
+	end
+	
+	if not nMin then
+		nMin = 1
+	end
+	
+	if core.NumberElements(tTargets) < nMin then 
+		return
+	end
+	
+	local unitSelf = core.unitSelf
+	local vecMyPosition = vecCenter or unitSelf:GetPosition()
+	
+	--getTembot
+	local teamBotBrain = core.teamBotBrain
+	if not teamBotBrain then 
+		return 
+	end
+	
+	--Get all units in range
+	local tUnitsInRangeVectors = {}
+	local nRangeSq = nRange*nRange
+	for _, unit in pairs (tTargets) do
+		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow) or unit:GetPosition()
+		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangeSq then
+			tinsert(tUnitsInRangeVectors, vecPosition)
+		end
+	end
+	
+	if #tUnitsInRangeVectors < nMin then
+		return
+	end
+	
+	local tVectorsOfUnits = {}
+	--do sth
+	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
+		local vecToTarget = vecPosition - vecMyPosition
+		local vecDirection = vecMyPosition+Vector3.Normalize(vecToTarget) * nRange / 2
+		tinsert(tVectorsOfUnits, {vecPosition, vecDirection, vecToTarget})
+	end
+	
+			
+	--------------
+		
+	local tBestGroup = {nNumber=0}
+	
+	local nRangeMid = (nRange + nWidth) / 2
+	local nRangeSqBig = nRangeMid * nRangeMid
+	local nRangesqSmall = nWidth * nWidth
+	
+	for _,tVectors in ipairs (tVectorsOfUnits) do
+		local vecMid = tVectors[2]
+		local vecToUnit = tVectors[3]
+		local nCurrentNumber = 0
+		for _,tOtherVectors in ipairs (tVectorsOfUnits) do
+			local vecTarget = tOtherVectors[1]
+			local vecLength = tOtherVectors[3] - Vector3.Project(vecToUnit, tOtherVectors[3])
+			local nDistanceSq = vecLength.x*vecLength.x + vecLength.y*vecLength.y
+			
+			local nDistanceFromMidSq = Vector3.Distance2DSq(vecTarget, vecMid)
+			if nDistanceFromMidSq <= nRangeSqBig and nDistanceSq <= nRangesqSmall then
+				nCurrentNumber = nCurrentNumber + 1
+			end
+		end
+	
+		if nCurrentNumber > tBestGroup.nNumber then
+			tBestGroup.nNumber = nCurrentNumber
+			tBestGroup.vecDirection = vecToUnit
+		end
+	end
+		
+	if  tBestGroup.nNumber >= nMin then
+		return tBestGroup.vecDirection
+	end	
+end
+
 --PushExec
 local function PushExecuteOverride(botBrain) 
 	local bActionTaken = false
@@ -818,14 +890,14 @@ local function PushExecuteOverride(botBrain)
 		core.InsertToTable(tLocalEnemyCreeps, tLocalHeroes)
 		local vecMyPosition = unitSelf:GetPosition()
 		
-		--object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow, bWidthAsDegree)
+		
 		--Stun
 		local abilCompell = skills.abilCompell
 		--not working
 		if abilCompell:CanActivate() and nMyMana > 260 then
-			local vecPosition = object.GetSkillPosition (tLocalEnemyCreeps,vecMyPosition, 600, 120, 3)
+			
+			local vecPosition = object.GetCompellPosition (tLocalEnemyCreeps,vecMyPosition, 600, 120, 3)
 			if vecPosition then
-				BotEcho("Compelling? "..tostring(vecPosition))
 				bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPosition)
 			end
 		end
@@ -1001,14 +1073,14 @@ local function PickRuneUtilityOverride(botBrain)
 				local sLanename = tLane.sLaneName
 				local vecCreepLocation = teamBotBrain:GetFrontOfCreepWavePosition(sLanename)
 				local nCreepY = vecCreepLocation.y
-				--BotEcho("nCreepY is "..tostring(nCreepY).." and Lanename: "..sLanename)
+				BotEcho("nCreepY is "..tostring(nCreepY).." and Lanename: "..sLanename)
 				local nMyTeam = core.unitSelf:GetTeam()
 				if nMyTeam == 1 then --Legion
 					if (sLanename == "top" and nCreepY > 11500) or 
 						(sLanename == "bottom" and nCreepY > 3000) or
-						(sLanename == "middle" and nCreepY > 7900) then
+						(sLanename == "middle" and nCreepY > 7500) then
 						--we can leave the lane, becuase it is pushed
-						--BotEcho("Legion!!!")
+						BotEcho("Legion!!!")
 						nUtility = nUtility + 20
 					end
 				else --Hellbourne
@@ -1153,7 +1225,7 @@ tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies)
 shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
 
 object.nItemuilddamageTime = 0
-object.nHPFactor = 0.5
+object.nHPFactor = 0.2
 local function funcCheckSurvivalItem (tItemDecisions) 
 	local bDebug = true
 
@@ -1501,15 +1573,10 @@ function object:onthinkOverride(tGameVariables)
 			local vecMyPosition = core.unitSelf:GetPosition()
 			local nSlamRadius = funcGetSlamRadius()
 			local nRangeSq = vecExpectedPositon and Vector3.Distance2DSq(vecExpectedPositon, vecMyPosition)
-			if not nRangeSq or nRangeSq  > nSlamRadius*nSlamRadius or nRangeSq < 900 then
+			if not unitHeroTarget:IsAlive() or not nRangeSq or nRangeSq  > nSlamRadius*nSlamRadius or nRangeSq < 900 then
 				object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
 			end
 			core.DrawXPosition(vecExpectedPositon)
-		end
-		if unitHeroTarget then
-		
-			local vecPosition = teamBotBrain.funcGetUnitPosition (unitHeroTarget)
-			core.DrawXPosition(vecPosition,"yellow")
 		end
 	end
 	
