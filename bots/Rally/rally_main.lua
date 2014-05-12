@@ -1,4 +1,6 @@
 --[[
+item:GetOwnerPlayerID()
+luafunctions
 --Rally v0.1 by Schnarchnase
 
 description:
@@ -30,7 +32,7 @@ object.bAttackCommands 	= true
 object.bAbilityCommands = true
 object.bOtherCommands 	= true
 
-object.bReportBehavior = true
+object.bReportBehavior = false
 object.bDebugUtility = false
 object.bDebugExecute = false
 
@@ -67,7 +69,6 @@ local Clamp = core.Clamp
 BotEcho('loading rally_main...')
 
 object.heroName = 'Hero_Rally'
-
 
 local tCompellDamage = {70,130,190,250}
 local tCompellStun = {1250,1500,1750,2000}
@@ -389,7 +390,7 @@ local function CustomHarassUtilityOverride(unitTarget)
 	local nID = unitTarget:GetUniqueID()
 	local tEnemyInformation = teamBotBrain.tEnemyInformationTable[nID]
 	local nEnemyCurrentHP = tEnemyInformation and tEnemyInformation.nCurrentHealth 
-	
+	local vecCurrentPos = tEnemyInformation and tEnemyInformation.vecCurrentPosition
 	
 	--Allies Bonus
 	local tAllies = core.localUnits["AllyHeroes"]
@@ -397,20 +398,22 @@ local function CustomHarassUtilityOverride(unitTarget)
 	local nAllyBonus = object.nAllyBonus
 	nUtility = nUtility + nAllies * nAllyBonus
 	
-	--Enemies near target decrease utility
-	local nEnemyThreat = object.nEnemyThreat
-	local nHeroRangeSq = object.nHeroRangeSq
-
-	local tEnemyTeam = HoN.GetHeroes(core.enemyTeam)
-
-	--units close to hero
-	for _, unitEnemy in pairs(tEnemyTeam) do
-		local nEnemyID = unitEnemy:GetUniqueID()
-		local tAnotherEnemyInfo = teamBotBrain.tEnemyInformationTable[nEnemyID]
-		if nID ~= nEnemyID and tAnotherEnemyInfo then
-			local vecUnitEnemyPosition = tAnotherEnemyInfo.bIsValid and tAnotherEnemyInfo.vecCurrentPosition
-			if vecUnitEnemyPosition and Vector3.Distance2DSq(tEnemyInformation.vecCurrentPosition, vecUnitEnemyPosition) < nHeroRangeSq then
-				nUtility = nUtility - nEnemyThreat
+	if vecCurrentPos then
+		--Enemies near target decrease utility
+		local nEnemyThreat = object.nEnemyThreat
+		local nHeroRangeSq = object.nHeroRangeSq
+	
+		local tEnemyTeam = HoN.GetHeroes(core.enemyTeam)
+	
+		--units close to hero
+		for _, unitEnemy in pairs(tEnemyTeam) do
+			local nEnemyID = unitEnemy:GetUniqueID()
+			local tAnotherEnemyInfo = teamBotBrain.tEnemyInformationTable[nEnemyID]
+			if nID ~= nEnemyID and tAnotherEnemyInfo then
+				local vecUnitEnemyPosition = tAnotherEnemyInfo.bIsValid and tAnotherEnemyInfo.vecCurrentPosition
+				if vecUnitEnemyPosition and Vector3.Distance2DSq(vecCurrentPos, vecUnitEnemyPosition) < nHeroRangeSq then
+					nUtility = nUtility - nEnemyThreat
+				end
 			end
 		end
 	end
@@ -526,6 +529,9 @@ local function HarassHeroExecuteOverride(botBrain)
 	
 	local nID = unitTarget:GetUniqueID()
 	local tEnemyInformation = teamBotBrain.tEnemyInformationTable[nID]
+	if not tEnemyInformation then
+		object.harassExecuteOld(botBrain)
+	end
 	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition 
 	
 	local nTargetHP = tEnemyInformation.nCurrentHealth
@@ -641,17 +647,19 @@ behaviorLib.HarassHeroBehavior["Execute"] = HarassHeroExecuteOverride
 
 --push utility
 local function PushOverride(botBrain)
-	local bDebug = true
+	local bDebug = false
 	local nUtility = object.PushOldUtility(botBrain)
 	
 	object.bPushHeavy = false
 	
 	--Push hard if the rune will spawn
-	local itemBottle = itemHandler.GetItem("Item_Bottle")
+	local itemBottle = core.GetItem("Item_Bottle")
 	if itemBottle then
 		local nNow = HoN.GetMatchTime()
 	
 		local nCurrentTwoMinuteCycle = floor(nNow / 1000)%120
+	
+		if bDebug then BotEcho("Funzt das hier? Current Stuff:"..tostring(nNow).." "..tostring(nCurrentTwoMinuteCycle)) end
 	
 		if nCurrentTwoMinuteCycle > 100 then
 			--push hard for rune
@@ -661,10 +669,15 @@ local function PushOverride(botBrain)
 		end
 	end
 	
+	local nMyMana = core.unitSelf:GetMana()
+	if nMyMana > 400 then
+		object.bPushHeavy = true
+	end
+	
 	return nUtility
 end
 object.PushOldUtility = behaviorLib.PushUtility
-behaviorLib.PushUtility = PushOverride
+behaviorLib.PushBehavior["Utility"] = PushOverride
 
 -- Find the angle in degrees between two targets. Modified from St0l3n_ID's AngToTarget code
 local function AngleBetween(vecSelf, vecTarget)
@@ -690,7 +703,6 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 	end
 	
 	if core.NumberElements(tTargets) < nMin then 
-		BotEcho("Not enough targets, but Min: "..tostring(nMin).."Minimum: "..tostring(#tTargets))
 		return
 	end
 	
@@ -709,7 +721,6 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 	for _, unit in pairs (tTargets) do
 		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow)
 		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangesq then
-			BotEcho("insert unit in range")
 			tinsert(tUnitsInRangeVectors, vecPosition)
 		end
 	end
@@ -718,34 +729,25 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 		return
 	end
 	
-	--this makes it easier in the loop
-	if bWidthAsDegree then
-		nWidth = nWidth / 2
-	end
-	
 	local tAnglesOfUnits = {}
-	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
-		if bWidthAsDegree then
+	if bWidthAsDegree then
+		local nLoopWidth = nWidth / 2
+		for _, vecPosition in ipairs (tUnitsInRangeVectors) do
 			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
-			BotEcho("Unit in Range, taking Angle")
-			tinsert(tAnglesOfUnits, {nMidAngle+nWidth, nMidAngle, nMidAngle-nWidth})
-		else
+			tinsert(tAnglesOfUnits, {nMidAngle+nLoopWidth, nMidAngle, nMidAngle-nLoopWidth})
+		end
+	else
+		for _, vecPosition in ipairs (tUnitsInRangeVectors) do
 			local vecDirection = Vector3.Normalize(vecPosition - vecMyPosition)
 			vecDirection = core.RotateVec2DRad(vecDirection, pi / 2)
 			
 			local nHighAngle = AngleBetween(vecMyPosition, vecPosition + vecDirection * nWidth)
 			local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
 			local nLowAngle = AngleBetween(vecMyPosition, vecPosition - vecDirection * nWidth)
-			BotEcho("Unit in Range, taking Angle")
 			tinsert(tAnglesOfUnits, {nHighAngle, nMidAngle, nLowAngle})
 		end
 	end
-	
-	--pull this change back
-	if bWidthAsDegree then
-		nWidth = nWidth * 2
-	end
-	
+		
 	local tBestGroup = {}
 	local tCurrentGroup = {}
 	
@@ -799,7 +801,6 @@ function object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNo
 		tsort(tBestGroup)
 			 
 		local nAvgAngle = core.DegToRad((tBestGroup[1] + tBestGroup[nBestGroupSize]) / 2)
-		BotEcho("Found vector")
 		return Vector3.Create(cos(nAvgAngle), sin(nAvgAngle)) * nRange
 	end	
 end
@@ -820,16 +821,18 @@ local function PushExecuteOverride(botBrain)
 		--object.GetSkillPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow, bWidthAsDegree)
 		--Stun
 		local abilCompell = skills.abilCompell
-		if abilCompell:CanActivate() and nMyMana > 280 then
+		--not working
+		if abilCompell:CanActivate() and nMyMana > 260 then
 			local vecPosition = object.GetSkillPosition (tLocalEnemyCreeps,vecMyPosition, 600, 120, 3)
 			if vecPosition then
+				BotEcho("Compelling? "..tostring(vecPosition))
 				bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecPosition)
 			end
 		end
 		
 		--Roar
 		local abilRoar = skills.abilRoar
-		if not bActionTaken and abilRoar:CanActivate() and nMyMana > 240 
+		if not bActionTaken and abilRoar:CanActivate() and nMyMana > 200 
 			and core.NumberElements(tLocalEnemyCreeps) > 4 then
 			local vecCenter = core.GetGroupCenter(tLocalEnemyCreeps)
 			if vecCenter and Vector3.Distance2DSq(vecMyPosition, vecCenter) < 80*80 then
@@ -840,7 +843,7 @@ local function PushExecuteOverride(botBrain)
 		end
 		
 		--Frostfield
-		local itemFrostfieldPlate = itemHandler.GetItem("Item_FrostfieldPlate")
+		local itemFrostfieldPlate = itemHandler:GetItem("Item_FrostfieldPlate")
 		if not bActionTaken and itemFrostfieldPlate and abilRoar:CanActivate() and nMyMana > 240 
 			and core.NumberElements(tLocalEnemyCreeps) > 4 then
 			local vecCenter = core.GetGroupCenter(tLocalEnemyCreeps)
@@ -857,7 +860,7 @@ local function PushExecuteOverride(botBrain)
 	end	
 end
 object.PushOldExecute = behaviorLib.PushExecute
-behaviorLib.PushExecute = PushExecuteOverride
+behaviorLib.PushBehavior["Execute"] = PushExecuteOverride
 
 --Retreat exec
 local function RetreatFromThreatExecuteOverride(botBrain)
@@ -865,7 +868,7 @@ local function RetreatFromThreatExecuteOverride(botBrain)
 	local unitSelf = core.unitSelf
 	
 	--Portal Key: Port away
-	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler.GetItem("Item_PortalKey"))
+	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler:GetItem("Item_PortalKey"))
 		
 	local vecMyPosition = unitSelf:GetPosition()
 	
@@ -889,6 +892,9 @@ local function RetreatFromThreatExecuteOverride(botBrain)
 	
 	local nID = unitTarget:GetUniqueID()
 	local tEnemyInformation = teamBotBrain.tEnemyInformationTable[nID]
+	if not tEnemyInformation then
+		return false
+	end
 	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition 
 	local nTargetDistanceSq = Vector3.Distance2DSq(vecEnemyPosition, vecMyPosition)
 	
@@ -913,7 +919,7 @@ local function ReturnToHealAtWell(botBrain)
 	local unitSelf = core.unitSelf
 	
 	--Portal Key: Port away
-	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler.GetItem("Item_PortalKey"))
+	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, core.GetItem("Item_PortalKey"))
 	
 	--Compell home
 	local abilCompell = skills.abilCompell
@@ -929,7 +935,7 @@ end
 behaviorLib.CustomReturnToWellExecute = ReturnToHealAtWell
 
 local function HealAtWellExecute(botBrain)
-	local itemBottle = core.GetItem("Item_Bottle")
+	local itemBottle = itemHandler:GetItem("Item_Bottle")
 	if itemBottle and not core.unitSelf:HasState("State_Bottle") and itemBottle:GetActiveModifierKey() ~= "bottle_empty" then
 		return core.OrderItemClamp(botBrain, core.unitSelf, itemBottle)
 	end
@@ -941,53 +947,113 @@ behaviorLib.CustomHealAtWellExecute = HealAtWellExecute
 --no bottle on easy!!!
 
 --runeing
-behaviorLib.nRuneGrabRange = 1500
+behaviorLib.nRuneGrabRange = 2000
 -- 30 if there is rune within 1000 and we see it
 local function PickRuneUtilityOverride(botBrain)
 	
-	local nRuneGrabRange = behaviorLib.nRuneGrabRange
-	--bottle? check rune frequently
-	local itemBottle = core.GetItem("Item_Bottle")
-	if itemBottle then
-		nRuneGrabRange = nRuneGrabRange + 3000
-	elseif core.nDifficulty == core.nEASY_DIFFICULTY then
-		--easyBots don't take runes if they do not own a bottle!
-		return 0
-	end
-	
-	--ToDo: Different Bottle States!!!
+	local nUtility = 0
 	
 	--certain runes
-	local tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), true, true)
+	local vecMyPosition = core.unitSelf:GetPosition()
+	local tRune = core.teamBotBrain.GetNearestRune(vecMyPosition, true, true)
 	
+	--uncertain ones
 	if not tRune then
-		tRune = core.teamBotBrain.GetNearestRune(core.unitSelf:GetPosition(), false, true)
+		nUtility = -5
+		tRune = core.teamBotBrain.GetNearestRune(vecMyPosition, false, true)
 	end
 	
-	if not tRune or Vector3.Distance2DSq(tRune.vecLocation, core.unitSelf:GetPosition()) > nRuneGrabRange * nRuneGrabRange then
-		return 0
+	--no rune?
+	if not tRune then
+		return nUtility
+	end
+		
+	--decision making
+	if not object.bPickRune then
+		--bottle
+		local itemBottle = itemHandler:GetItem("Item_Bottle")
+		
+		--near rune?
+		local nRuneGrabRange = behaviorLib.nRuneGrabRange
+		if core.nDifficulty ~= core.nEASY_DIFFICULTY and Vector3.Distance2DSq(tRune.vecLocation, core.unitSelf:GetPosition()) <= nRuneGrabRange * nRuneGrabRange then
+			nUtility = nUtility + 25
+		elseif itemBottle then
+			--BotEcho("Yeah I have a bottle!")
+			sBottleContent = itemBottle:GetActiveModifierKey()
+			if sBottleContent == "bottle_empty" then
+				nUtility = nUtility + 15
+			elseif sBottleContent == "bottle_1" or sBottleContent == "bottle_2" then
+				nUtility = nUtility + 5
+			else--bottle full or with power-up!
+				if nUtility < 0 then
+					--BotEcho("Bottle full")
+					return 0 --we don't know if the rune is a good one, so don't bother
+				elseif not tRune.bBetter then
+					--BotEcho("No certain ruen and is full")
+					return 0 --we know it is a shitty one, don't bother
+				end
+			end
+		
+			--check lane status (can we go to rune?)
+			local teamBotBrain = core.teamBotBrain
+			local tLane = core.tMyLane
+			if teamBotBrain and tLane then
+				local sLanename = tLane.sLaneName
+				local vecCreepLocation = teamBotBrain:GetFrontOfCreepWavePosition(sLanename)
+				local nCreepY = vecCreepLocation.y
+				--BotEcho("nCreepY is "..tostring(nCreepY).." and Lanename: "..sLanename)
+				local nMyTeam = core.unitSelf:GetTeam()
+				if nMyTeam == 1 then --Legion
+					if (sLanename == "top" and nCreepY > 11500) or 
+						(sLanename == "bottom" and nCreepY > 3000) or
+						(sLanename == "middle" and nCreepY > 7900) then
+						--we can leave the lane, becuase it is pushed
+						--BotEcho("Legion!!!")
+						nUtility = nUtility + 20
+					end
+				else --Hellbourne
+					if (sLanename == "top" and nCreepY < 12500) or
+						(sLanename == "bottom" and nCreepY < 4600) or
+						(sLanename == "middle" and nCreepY < 7250) then
+						--we can leave the lane, becuase it is pushed
+						--BotEcho("Hellbourne!!!")
+						nUtility = nUtility + 20
+					end				
+				end
+			end
+		end
+		
+		--are we in lane and is it a good moment to leave it for rune? (mid or bottle)
+	else
+		--go get it / abort
+		nUtility = behaviorLib.nLastRuneUtility
 	end
 
 	behaviorLib.tRuneToPick = tRune
-
-	return 36
+	behaviorLib.nLastRuneUtility = nUtility
+	
+	return nUtility
 end
 behaviorLib.PickRuneBehavior["Utility"] = PickRuneUtilityOverride
 
 local function PickRuneExecuteOverride(botBrain)
 	tRune = behaviorLib.tRuneToPick
 	if tRune == nil or tRune.vecLocation == nil or tRune.bPicked then
+		object.bPickRune = false
 		return false
 	end
+		
 	local vecRunePosition = tRune.vecLocation
 	local unitSelf = core.unitSelf
 	--local nDistanceSQ = Vector3.Distance2DSq(vecRunePosition, unitSelf:GetPosition())
 	
 	if not HoN.CanSeePosition(vecRunePosition) or not tRune.unit then
+		object.bPickRune = true
 		return behaviorLib.MoveExecute(botBrain, vecRunePosition)
 	elseif tRune.unit and tRune.unit:IsValid() then
 		return core.OrderTouch(botBrain, unitSelf, tRune.unit)
 	else 
+		object.bPickRune = false
 		return false
 	end
 end
@@ -997,23 +1063,42 @@ behaviorLib.PickRuneBehavior["Execute"] = PickRuneExecuteOverride
 function object.SavingAlliesUtility(botBrain)
 	local nUtility = 0 
 	
+	--do not save illusions, so save the teamheroes at the beginning of the match
+	if not object.tSaveAllies then
+		local tMyTeam = HoN.GetHeroes(core.myTeam)
+		if tMyTeam then
+			object.tSaveAllies = {}
+			for _, unitAlly in pairs (tMyTeam) do
+				local nAllyID = unitAlly:GetUniqueID()
+				--skip ourself
+				if nAllyID ~= core.unitSelf:GetUniqueID() then
+					object.tSaveAllies[nAllyID] = true
+				end
+			end
+		else
+			return nUtility
+		end
+	end
+	
 	if not skills.abilCompell:CanActivate() then 
 		return nUtility
 	end
 	
 	local tAlliesNear = core.localUnits["AllyHeroes"]
 	local nAlliesNear = core.NumberElements(tAlliesNear)
+	local tSaveAllies = object.tSaveAllies
 	
 	if nAlliesNear > 0 then
 		local funcTimeToLive = life.funcTimeToLiveUtility
 		for _, unitAlly in pairs(tAlliesNear) do
-			--ToDO: Don't save illusions...
-			--Isn't there a Restrained bool?or unitAlly:IsRestrained()
-			local bAllyIsInvalid = unitAlly:IsImmobilized()  or object.isMagicImmune(unitAlly)
-			local nUtilityAlly = not bAllyIsInvalid and funcTimeToLive(unitAlly)
-			if nUtilityAlly and nUtilityAlly > nUtility then
-				nUtility = nUtilityAlly
-				object.unitToSave = unitAlly
+			if tSaveAllies[unitAlly:GetUniqueID()] then
+				--Isn't there a Restrained bool?or unitAlly:IsRestrained()
+				local bAllyIsInvalid = unitAlly:IsImmobilized()  or object.isMagicImmune(unitAlly)
+				local nUtilityAlly = not bAllyIsInvalid and funcTimeToLive(unitAlly)
+				if nUtilityAlly and nUtilityAlly > nUtility then
+					nUtility = nUtilityAlly
+					object.unitToSave = unitAlly
+				end
 			end
 		end
 	end
@@ -1068,7 +1153,10 @@ tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies)
 shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
 
 object.nItemuilddamageTime = 0
+object.nHPFactor = 0.5
 local function funcCheckSurvivalItem (tItemDecisions) 
+	local bDebug = true
+
 	local nTrueDamgaTaken = object.nTrueDamgaTaken
 	local nMagicalDamageTaken = object.nMagicalDamageTaken
 	local nPhysicalDamageTaken = object.nPhysicalDamageTaken
@@ -1087,20 +1175,20 @@ local function funcCheckSurvivalItem (tItemDecisions)
 	local nMaxHP = unitSelf:GetMaxHealth()
 	
 	if nNow and nNow > nItemuilddamageTime then
-		local nTimeSpan = nNow - nItemuilddamageTime
+		local nTimeSpan = (nNow - nItemuilddamageTime)/60000 --damage per minute
 		object.nItemuilddamageTime = nNow
-		BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
+		if bDebug then BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan)) end
 		if nMagicPercent > 0.6 and nMaxHP >= 1000 then
-			BotEcho("Magic Percent :"..tostring(nMagicPercent))
+			if bDebug then BotEcho("Magic Percent :"..tostring(nMagicPercent)) end
 			return "magic"
 		elseif nPhysicalPercent > 0.6 and tItemDecisions.bBootsFinished then
-			BotEcho("Physical Percent :"..tostring(nPhysicalPercent))
+			if bDebug then BotEcho("Physical Percent :"..tostring(nPhysicalPercent)) end
 			return "physical"
-		elseif nSum / nTimeSpan > nMaxHP / 1000 then
-			BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan))
+		elseif nSum / nTimeSpan > nMaxHP * object.nHPFactor then
+			if bDebug then BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan)) end
 			return "hp"
 		else
-			BotEcho("Nothing to worry about")
+			if bDebug then BotEcho("Nothing to worry about") end
 			return "none"
 		end
 	end
@@ -1461,5 +1549,7 @@ core.tRespawnChatKeys = {
 
 --enable taunt for practice mode (hehe)
 Echo("g_perks 1")
+
+SetBotDifficulty(3)
 
 BotEcho('finished loading rally_main')

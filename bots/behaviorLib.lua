@@ -2646,7 +2646,7 @@ function behaviorLib.RetreatFromThreatExecute(botBrain)
 	if not bActionTaken then
 		local unitSelf = core.unitSelf
 		local vecPos = behaviorLib.PositionSelfBackUp()
-		bActionTaken = core.OrderMoveToPosClamp(botBrain, unitSelf, vecPos, false)
+		bActionTaken = vecPos and core.OrderMoveToPosClamp(botBrain, unitSelf, vecPos, false)
 	end
 	return bActionTaken
 end

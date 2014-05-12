@@ -255,7 +255,7 @@ parameters: 	sItemName : Name of the item (e.g. "Item_HomecomingStone");
 returns:		the item or nil if not found
 --]]
 function itemHandler:GetItem(sItemName, unitSelected, bReturnAll)
-	   
+	
 	--no item name, no item
 	if not sItemName then 
 		return 
@@ -279,6 +279,7 @@ function itemHandler:GetItem(sItemName, unitSelected, bReturnAll)
 	local tItems = itemHandler.tItems[sItemKey]
 	if not tItems then
 		--no item
+		--if shoppingLib.bDebugInfoItemHandler then BotEcho("No entry!") end
 		return
 	end
 	
