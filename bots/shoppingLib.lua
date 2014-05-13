@@ -145,7 +145,7 @@ shoppingLib.tItemDecisions = shoppingLib.tItemDecisions or {} --table of custom 
 shoppingLib.tShoppingList = shoppingLib.tShoppingList or {}
 
 --Courier
-shoppingLib.bCourierMissionControl = false
+shoppingLib.bCourierMissionControl = shoppingLib.bCourierMissionControl or false
 shoppingLib.nNextFindCourierTime = HoN.GetGameTime()
 
 --other variables
@@ -205,10 +205,7 @@ shoppingLib.nNextCourierControl = HoN.GetGameTime()
 shoppingLib.nCourierControlIntervall = 250
 
 --Courierstates: 0: Bugged; 1: Fill Courier; 2: Delivery; 3: Fill Stash
-shoppingLib.nCourierState = 0
-
---used item slots by our bot
-shoppingLib.tCourierSlots = shoppingLib.tCourierSlots or {}
+shoppingLib.nCourierState = shoppingLib.nCourierState or 1
 
 --courier delivery ring
 shoppingLib.nCourierDeliveryDistanceSq = 500 * 500
@@ -221,8 +218,8 @@ shoppingLib.nCourierDeliveryTimeOut = 1000
 shoppingLib.nCourierPositionTimeOut = shoppingLib.nCourierDeliveryTimeOut + 500
 
 --courier repair variables
-shoppingLib.nCourierBuggedTimer = 0
-shoppingLib.vecCourierLastPosition = nil
+shoppingLib.nCourierBuggedTimer = shoppingLib.nCourierBuggedTimer or 0
+shoppingLib.vecCourierLastPosition = shoppingLib.vecCourierLastPosition or nil
 
 --stop shopping if we are done
 shoppingLib.bDoShopping = true
@@ -324,8 +321,8 @@ returns:		true if the item was added
 --]]
 function itemHandler:AddItem(itemCurrent, unitSelected)
 	   
-	--no item, nothing to add
-	if not itemCurrent then 
+	--no item or not our item: nothing to add
+	if not itemCurrent or itemCurrent:GetOwnerPlayerID() ~= object:GetPlayerID() then 
 		return 
 	end
 	
@@ -418,21 +415,12 @@ function itemHandler:UpdateDatabase(bClear)
 		for _, unit in ipairs(tInventoryUnits) do
 			if unit:IsValid() then
 				local unitInventory = unit:GetInventory()
-				--courier-unit has problems with multi-share
-
-				if unit == unitCourier then
-					local  tCourierSlots =  shoppingLib.tCourierSlots
-					for _, tCourierEntry in ipairs (tCourierSlots) do
-						local nSlot = tCourierEntry[1]
-						local itemCurrent = unitInventory[nSlot]
-						itemHandler:AddItem(itemCurrent, unit)
-					end
-				else					
-					for nSlot = 1, 6, 1 do
-						local itemCurrent = unitInventory[nSlot]
-						itemHandler:AddItem(itemCurrent, unit)
-					end
+				
+				for nSlot = 1, 6, 1 do
+					local itemCurrent = unitInventory[nSlot]
+					itemHandler:AddItem(itemCurrent, unit)
 				end
+				
 			end
 		end	
 	end
@@ -599,7 +587,7 @@ function shoppingLib.GetCourier(bForceUpdate)
 				if shoppingLib.bDebugInfoShoppingFunctions then BotEcho("Found Courier!") end
 				
 				--my courier? share to team
-				if unit:GetOwnerPlayerID() == core.unitSelf:GetOwnerPlayerID() then
+				if unit:GetOwnerPlayerID() == object:GetPlayerID() then
 					unit:TeamShare()
 				end
 				
@@ -1004,10 +992,9 @@ function shoppingLib.CheckItemsInventory (tComponents)
 	local unitCourier = shoppingLib.GetCourier()
 	if unitCourier then
 		local tCourierInventory = unitCourier:GetInventory(false)
-		for _, tCourierEntry in ipairs (shoppingLib.tCourierSlots) do
-			local nSlot = tCourierEntry and tCourierEntry[1]
-			if nSlot then
-				tinsert(tInventory, tCourierInventory[nSlot])
+		for _, item in pairs (tCourierInventory) do
+			if item and item:GetOwnerPlayerID() == object:GetPlayerID() then
+				tinsert(tInventory, item)
 			end
 		end
 	end
@@ -1452,11 +1439,10 @@ end
 description:	Sell a number of items from the unit's inventory (inc.stash)
 parameters: 	nNumber: Number of items to sell; 
 				unitSelected: Unit which should sell its items
-				tRestrictionSlotTable: table with accessable slots (courier related)
 				
 returns:		true if the items were succcessfully sold
 --]]
-function shoppingLib.SellItems (nNumber, unitSelected, tRestrictionSlotTable)
+function shoppingLib.SellItems (nNumber, unitSelected)
 	local bChanged = false
 	
 	local unitSelf = core.unitSelf
@@ -1481,40 +1467,24 @@ function shoppingLib.SellItems (nNumber, unitSelected, tRestrictionSlotTable)
 	
 	--list of cost and slot pairs
 	local tValueList = {}
-	
-	--Create an accesstable (you can not check item ownership)(12)
-	local tAccess = nil
-	
-	--if we have restircted slots, only use them
-	if tRestrictionSlotTable then
-		tAccess = {false,false,false,false,false,false,true,true,true,true,true,true}
-		for _, tEntry in pairs(tRestrictionSlotTable) do
-			nSlot = tEntry[1] or tEntry -- SPecial case for courier-slots 
-			tAccess[nSlot] = true
-		end
-	else
-		tAccess = {true,true,true,true,true,true,true,true,true,true,true,true}
-	end
-		
+			
 	--index items
 	for nSlot=1, 12, 1 do
-		if tAccess[nSlot] then
-			local tCurrentInventory = nSlot < 7 and tInventory or tStash
-			local itemCurrent = tCurrentInventory[nSlot]
-			if itemCurrent and not itemCurrent:IsRecipe() then
-				local nItemTotalCost = itemCurrent:GetTotalCost()
-				local sItemName = itemCurrent:GetName()
-			
-				--give the important items a bonus in gold (Boots, Mystic Vestments etc.)
-				if unitSelf == unitSelected and nSlot == shoppingLib.GetItemSlotNumber(sItemName) then
-					nItemTotalCost = nItemTotalCost + shoppingLib.nSellBonusValue
-				end
-	
-				--insert item in the list
-				tinsert(tValueList, {nItemTotalCost, nSlot})
-				if shoppingLib.bDebugInfoShoppingFunctions then BotEcho("Insert Slotnumber: "..tostring(nSlot).." Item "..sItemName.." Price "..tostring(nItemTotalCost)) end
+		local tCurrentInventory = nSlot < 7 and tInventory or tStash
+		local itemCurrent = tCurrentInventory[nSlot]
+		if itemCurrent and itemCurrent:GetOwnerPlayerID() == object:GetPlayerID() and not itemCurrent:IsRecipe() then
+			local nItemTotalCost = itemCurrent:GetTotalCost()
+			local sItemName = itemCurrent:GetName()
+		
+			--give the important items a bonus in gold (Boots, Mystic Vestments etc.)
+			if unitSelf == unitSelected and nSlot == shoppingLib.GetItemSlotNumber(sItemName) then
+				nItemTotalCost = nItemTotalCost + shoppingLib.nSellBonusValue
 			end
-		end				
+	
+			--insert item in the list
+			tinsert(tValueList, {nItemTotalCost, nSlot})
+			if shoppingLib.bDebugInfoShoppingFunctions then BotEcho("Insert Slotnumber: "..tostring(nSlot).." Item "..sItemName.." Price "..tostring(nItemTotalCost)) end
+		end
 	end
 	
 	--sort list (itemcost Down->Top)
@@ -1901,9 +1871,6 @@ function shoppingLib.FillCourier(unitCourier)
 		if itemCurrent and nFreeSlot then
 			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Swap "..tostring(nSlot).." with "..tostring(nFreeSlot)) end
 			unitCourier:SwapItems(nSlot, nFreeSlot)
-			local itemDef = itemCurrent:GetItemDefinition()
-			local tCourierEntry = {nFreeSlot, itemDef}
-			tinsert(shoppingLib.tCourierSlots, tCourierEntry)
 			nOpenSlot = nOpenSlot + 1
 			bSuccess = true
 		end
@@ -1918,57 +1885,51 @@ end
 
 --fill stash with the items from courier
 function shoppingLib.FillStash(unitCourier)
-	local bSuccess = false
 	
 	if not unitCourier then 
-		return bSuccess 
+		return false 
 	end
 	
 	--get inventory information
 	local tInventory = unitCourier:GetInventory()
 	local tStash = core.unitSelf:GetInventory (true)
-	
-	--any items to return to stash?
-	local tCourierSlots = shoppingLib.tCourierSlots
-	if not tCourierSlots then 
-		return true 
-	end
-	
+		
 	if shoppingLib.bDebugInfoCourierRelated then BotEcho("Fill Stash") end
 	
-	-- return items to stash
-	local nLastItemSlot = #tCourierSlots
-	for nSlot=7, 12, 1 do 
-		local itemInStashSlot = tStash[nSlot]
-		local tCourierEntry = tCourierSlots[nLastItemSlot]
-		local nItemSlot = tCourierEntry and tCourierEntry[1]
-		local itemInSlot = nItemSlot and tInventory[nItemSlot]
-		if not itemInSlot then
-			if shoppingLib.bDebugInfoCourierRelated then BotEcho("No item in Slot "..tostring(nItemSlot)) end
-			tremove(shoppingLib.tCourierSlots)
-			nLastItemSlot = nLastItemSlot - 1
-		elseif not itemInStashSlot then
-			local bIsTrackedItem = tCourierEntry[2] == itemInSlot:GetItemDefinition()
-			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Was this item tracked? Name: "..tostring(itemInSlot:GetName()).." Tracked: "..tostring(bIsTrackedItem)) end
-			if bIsTrackedItem then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Swap "..tostring(nItemSlot).." with "..tostring(nSlot)) end
-				unitCourier:SwapItems(nItemSlot, nSlot)
-				bSuccess = true
-			end
-			tremove(shoppingLib.tCourierSlots)
-			nLastItemSlot = nLastItemSlot - 1
+	local nFirstStashSlot = 7
+	local nNumberToSell = 6
+	for nCourierSlot = 6, 1, -1 do
+		local itemCurrent = tInventory[nCourierSlot]
+		if itemCurrent and itemCurrent:GetOwnerPlayerID() == object:GetPlayerID() then
+		
+			--This is an item we have to put into our stash!
+			if nFirstStashSlot <= 12 then
+				for nStashSlot = nFirstStashSlot, 12, 1 do
+					local itemStash = tStash[nStashSlot]
+					if not itemStash then
+						if shoppingLib.bDebugInfoCourierRelated then BotEcho("Swap "..tostring(nCourierSlot).." with "..tostring(nStashSlot)) end
+						unitCourier:SwapItems(nCourierSlot, nStashSlot)
+						nFirstStashSlot = nStashSlot + 1
+						nNumberToSell = nNumberToSell - 1
+						break
+					end
+				end
+			end	
+		else
+			--no item or non of our concern
+			nNumberToSell = nNumberToSell - 1 
 		end
 	end
 	
-	local nCourierSlotsUsed = #shoppingLib.tCourierSlots
-	if nCourierSlotsUsed == 0 then
-		bSuccess = true
-	else
+	
+	if nNumberToSell ~= 0 then
+		--Couldn't swap all items, sell some stuff!
 		if shoppingLib.bDebugInfoCourierRelated then BotEcho("Still items remaining. Selling number of items: "..tostring(nCourierSlotsUsed)) end
-		shoppingLib.SellItems (nCourierSlotsUsed, unitCourier, tCourierSlots)
+		shoppingLib.SellItems (nNumberToSell, unitCourier)
+		return false
 	end
 	
-	return bSuccess 
+	return true
 end
 
 --courier control function
@@ -1977,167 +1938,139 @@ local function CourierMission(botBrain, unitCourier)
 	local nCourierState = shoppingLib.nCourierState
 	local bOnMission = true
 	
-	--check current state; 0: setting up courier (after reload); 1: fill courier; 2 deliver; 3 home
+	--check current state; 1: fill courier; 2 deliver; 3 home
 	if nCourierState < 2 then
-		if nCourierState < 1 then
-			--nCourierState = 0 --> Setting up courier
-			if #shoppingLib.tCourierSlots > 0 then
-				--have sth. to deliver
-				shoppingLib.nCourierState = 2 -- Delivery
+		--nCourierState = 1 --> Filling courier phase
+		if unitCourier:CanAccessStash() then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Stash Access") end
+			local nNow = HoN.GetGameTime()
+			local teamBotBrain = core.teamBotBrain
+			local nLastCourierTime = teamBotBrain.tShoppingInfo.nLastCourierTime
+			if teamBotBrain and nLastCourierTime ~= nNow then
+				teamBotBrain.tShoppingInfo.nLastCourierTime = nNow
 			else
-				--fill courier
-				shoppingLib.nCourierState = 1 -- Filling
+				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier critical access - Skip Frame") end
+				return
 			end
-			--Setting up complete
-		else
-			--nCourierState = 1 --> Filling courier phase
-			if unitCourier:CanAccessStash() then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Stash Access") end
-				local nNow = HoN.GetGameTime()
-				local teamBotBrain = core.teamBotBrain
-				local nLastCourierTime = teamBotBrain.tShoppingInfo.nLastCourierTime
-				if teamBotBrain and nLastCourierTime ~= nNow then
-					teamBotBrain.tShoppingInfo.nLastCourierTime = nNow
+			--fill courier
+			local bSuccess = shoppingLib.FillCourier(unitCourier)
+			if bSuccess then
+				--Item transfer successfull. Switch to delivery phase
+				shoppingLib.nCourierState = 2 -- Delivery
+			else 
+				--no items transfered (no space or no items)
+				if nCourierState == 1.9 then -- 3-strike system
+					--3rd transfer attempt didn't solve the issue, stopping mission
+					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Something destroyed courier usage. Courier-Inventory is full or unit has no stash items") end
+					bOnMission = false
 				else
-					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier critical access - Skip Frame") end
-					return
-				end
-				--fill courier
-				local bSuccess = shoppingLib.FillCourier(unitCourier)
-				if bSuccess then
-					--Item transfer successfull. Switch to delivery phase
-					shoppingLib.nCourierState = 2 -- Delivery
-				else 
-					--no items transfered (no space or no items)
-					if nCourierState == 1.9 then -- 3-strike system
-						--3rd transfer attempt didn't solve the issue, stopping mission
-						if shoppingLib.bDebugInfoCourierRelated then BotEcho("Something destroyed courier usage. Courier-Inventory is full or unit has no stash items") end
-						bOnMission = false
-					else
-						--waiting some time before trying again
-						if shoppingLib.bDebugInfoCourierRelated then BotEcho("Can not transfer any items. Taking a time-out") end
-						local nNow = HoN.GetGameTime()
-						shoppingLib.nNextCourierControl = nNow + 5000
-						shoppingLib.nCourierState = shoppingLib.nCourierState +0.3
-					end
+					--waiting some time before trying again
+					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Can not transfer any items. Taking a time-out") end
+					local nNow = HoN.GetGameTime()
+					shoppingLib.nNextCourierControl = nNow + 5000
+					shoppingLib.nCourierState = shoppingLib.nCourierState +0.3
 				end
 			end
-			--Filling courier complete
 		end
-	else
-		if nCourierState < 3 then
-			--nCourierState = 2 --> Delivery
+		--Filling courier complete		
+	elseif nCourierState == 2 then
+		--nCourierState = 2 --> Delivery
+		
+		--unit is dead? abort delivery
+		if not core.unitSelf:IsAlive() then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Hero is dead - returning Home") end
+			--abort mission and fill stash
+			shoppingLib.nCourierState = 3 -- Home
 			
-			--unit is dead? abort delivery
-			if not core.unitSelf:IsAlive() then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Hero is dead - returning Home") end
-				--abort mission and fill stash
-				shoppingLib.nCourierState = 3 -- Home
+			--home
+			local abilCourierHome = unitCourier:GetAbility(3)
+			if abilCourierHome then
+				core.OrderAbility(botBrain, abilCourierHome, nil, true)
+				return bOnMission
+			end
+		end
+		
+		-- only cast delivery ability once (else it will lag the courier movement
+		if not shoppingLib.bDelivery then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier uses Delivery!") end
+			--deliver
+			local abilCourierSend = unitCourier:GetAbility(2)
+			if abilCourierSend then
+				core.OrderAbility(botBrain, abilCourierSend, nil, true)
+				shoppingLib.bDelivery = true
+				return bOnMission
+			end
+		end
+		
+		--activate speedburst
+		local abilCourierSpeed = unitCourier:GetAbility(1) and unitCourier:GetAbility(0)
+		if abilCourierSpeed and abilCourierSpeed:CanActivate() then
+			core.OrderAbility(botBrain, abilCourierSpeed)
+			return bOnMission
+		end
+		
+		--check if courier is near hero to queue home-skill
+		local nDistanceCourierToHeroSq = Vector3.Distance2DSq(unitCourier:GetPosition(), core.unitSelf:GetPosition()) 
+		if shoppingLib.bDebugInfoCourierRelated then BotEcho("Distance between courier and hero"..tostring(nDistanceCourierToHeroSq)) end
+		
+		if nDistanceCourierToHeroSq <= shoppingLib.nCourierDeliveryDistanceSq then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier is in inner circle") end
+			
+			if not shoppingLib.bUpdateDatabaseAfterDelivery then
+				shoppingLib.bUpdateDatabaseAfterDelivery = true
 				
+				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Activate Home Skill !") end
 				--home
 				local abilCourierHome = unitCourier:GetAbility(3)
 				if abilCourierHome then
 					core.OrderAbility(botBrain, abilCourierHome, nil, true)
 					return bOnMission
 				end
-			end
-			
-			-- only cast delivery ability once (else it will lag the courier movement
-			if not shoppingLib.bDelivery then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier uses Delivery!") end
-				--deliver
-				local abilCourierSend = unitCourier:GetAbility(2)
-				if abilCourierSend then
-					core.OrderAbility(botBrain, abilCourierSend, nil, true)
-					shoppingLib.bDelivery = true
-					return bOnMission
-				end
-			end
-			
-			--activate speedburst
-			local abilCourierSpeed = unitCourier:GetAbility(1) and unitCourier:GetAbility(0)
-			if abilCourierSpeed and abilCourierSpeed:CanActivate() then
-				core.OrderAbility(botBrain, abilCourierSpeed)
-				return bOnMission
-			end
-			
-			--check if courier is near hero to queue home-skill
-			local nDistanceCourierToHeroSq = Vector3.Distance2DSq(unitCourier:GetPosition(), core.unitSelf:GetPosition()) 
-			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Distance between courier and hero"..tostring(nDistanceCourierToHeroSq)) end
-			
-			if nDistanceCourierToHeroSq <= shoppingLib.nCourierDeliveryDistanceSq then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier is in inner circle") end
-				
-				if not shoppingLib.bUpdateDatabaseAfterDelivery then
-					shoppingLib.bUpdateDatabaseAfterDelivery = true
-					
-					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Activate Home Skill !") end
-					--home
-					local abilCourierHome = unitCourier:GetAbility(3)
-					if abilCourierHome then
-						core.OrderAbility(botBrain, abilCourierHome, nil, true)
-						return bOnMission
-					end
-				end				
-			else
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier is out of range") end
-				if shoppingLib.bUpdateDatabaseAfterDelivery then
-				
-					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Delivery done") end
-					shoppingLib.bUpdateDatabaseAfterDelivery = false
-					itemHandler:UpdateDatabase()
-					
-					--remove item entries successfully delivered (item transfer bug protection)
-					local tInventory = unitCourier:GetInventory(false)
-					local tCourierSlots = shoppingLib.tCourierSlots
-					local nIndex = 1
-					while nIndex <= #tCourierSlots do
-						local tCourierEntry = tCourierSlots[nIndex]
-						local nSlot = tCourierEntry[1]
-						local item = nSlot and tInventory[nSlot]
-						if item then
-							nIndex = nIndex + 1
-						else
-							tremove(shoppingLib.tCourierSlots, nIndex)
-						end
-					end
-					shoppingLib.nCourierState = 3 -- Home
-					shoppingLib.bDelivery = false
-				end
-			end
-			--Delivery Complete
+			end				
 		else
-			--nCourierState = 3 --> Send Courier home
-			--unit just respawned after failed mission - try to deliver again
-			if core.unitSelf:IsAlive() and shoppingLib.bDelivery then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Hero has respawned") end
-				--resend courier
-				shoppingLib.nCourierState = 2 --Delivery
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier is out of range") end
+			if shoppingLib.bUpdateDatabaseAfterDelivery then
+			
+				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Delivery done") end
+				shoppingLib.bUpdateDatabaseAfterDelivery = false
+				itemHandler:UpdateDatabase()
+				
+				shoppingLib.nCourierState = 3 -- Home
 				shoppingLib.bDelivery = false
 			end
-			
-			--Waiting for courier to be usable
-			if unitCourier:CanAccessStash() then
-				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier can access stash. Ending mission") end
-				local nNow = HoN.GetGameTime()
-				local teamBotBrain = core.teamBotBrain
-				local nLastCourierTime = teamBotBrain.tShoppingInfo.nLastCourierTime
-				if teamBotBrain and nLastCourierTime ~= nNow then
-					teamBotBrain.tShoppingInfo.nLastCourierTime = nNow
-				else
-					if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier critical access - Skip Frame") end
-					return
-				end
-				local bSuccess = shoppingLib.FillStash(unitCourier)
-				if bSuccess then
-					shoppingLib.nCourierState = 1 --Filling
-				
-					bOnMission = false
-				end
+		end
+		--Delivery Complete
+	else
+		--nCourierState = 3 --> Send Courier home
+		--unit just respawned after failed mission - try to deliver again
+		if core.unitSelf:IsAlive() and shoppingLib.bDelivery then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Hero has respawned") end
+			--resend courier
+			shoppingLib.nCourierState = 2 --Delivery
+			shoppingLib.bDelivery = false
+		end
+		
+		--Waiting for courier to be usable
+		if unitCourier:CanAccessStash() then
+			if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier can access stash. Ending mission") end
+			local nNow = HoN.GetGameTime()
+			local teamBotBrain = core.teamBotBrain
+			local nLastCourierTime = teamBotBrain.tShoppingInfo.nLastCourierTime
+			if teamBotBrain and nLastCourierTime ~= nNow then
+				teamBotBrain.tShoppingInfo.nLastCourierTime = nNow
+			else
+				if shoppingLib.bDebugInfoCourierRelated then BotEcho("Courier critical access - Skip Frame") end
+				return
 			end
-			--Home Complete
+			local bSuccess = shoppingLib.FillStash(unitCourier)
+			if bSuccess then
+				shoppingLib.nCourierState = 1 --Filling
+			
+				bOnMission = false
+			end
 		end
 	end
+	--Home Complete
 
 	return bOnMission
 end
@@ -2147,7 +2080,7 @@ local function CheckCourierBugged(botBrain, courier)
 	--Courier is a multi user controlled unit, so it may bugged out
 	
 	--end of courier mission; don't track courier
-	if not shoppingLib.bCourierMissionControl and core.IsTableEmpty(shoppingLib.tCourierSlots) then
+	if not shoppingLib.bCourierMissionControl then
 		shoppingLib.vecCourierLastPosition = nil
 		return
 	end

@@ -66,7 +66,10 @@ function life.funcGetThreatOfEnemy (unitEnemy, unitMyself)
 	
 	--Get Length of vector
 	local nDistanceY = vecDistance.y
-	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
+	local nDistanceX = vecDistance.x
+	local nDistance = nDistanceY / sin(atan2(nDistanceY, nDistanceX)) 
+	
+	--BotEcho("Vectorlänge: "..tostring(nDistance).." vec "..tostring(vecDistance))
 	
 	--distance greater than max-range?
 	if nDistance > life.nThreatValueX2 then 

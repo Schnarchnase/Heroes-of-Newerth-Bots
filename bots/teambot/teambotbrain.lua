@@ -2361,7 +2361,7 @@ function object.HuntingUtility(botBrain)
 		return 0
 	elseif sStatus == "Move" then
 		botBrain.unitHuntingTarget,	botBrain.vecHuntingArea = object.funcGetHuntingTarget(botBrain)
-		return 35
+		return 40
 	else --sStatus =="Hunt"
 		botBrain.unitHuntingTarget,	botBrain.vecHuntingArea = object.funcGetHuntingTarget(botBrain)
 		return 70
@@ -2421,8 +2421,8 @@ function object.funcCoordinateGanks()
 				for _, unitAnotherEnemy in pairs(tEnemyHeroes) do
 					local nAnotherUnitID = unitAnotherEnemy:GetUniqueID()
 					if nID ~= nAnotherUnitID and unitAnotherEnemy:IsAlive() then
-						local tAnotherEnemyInformation = tEnemyInformationTable[nAnotherUnitID]
-						if tAnotherEnemyInformation and tEnemyInformation.bIsValid then
+						local tAnotherEnemyInformation = object.tEnemyInformationTable[nAnotherUnitID]
+						if tAnotherEnemyInformation and tEnemyInformation.bIsValid and tAnotherEnemyInformation.vecCurrentPosition then
 							local nTargetDistanceSq = Vector3.Distance2DSq(tEnemyInformation.vecCurrentPosition, tAnotherEnemyInformation.vecCurrentPosition)
 							if nTargetDistanceSq < object.nMaxdistanceSq then
 								nEnemyValue = nEnemyValue * 0.8
@@ -2499,6 +2499,7 @@ function object.funcCoordinateGanks()
 				nDPS = tData[2]
 				nLockdown = tData[3]
 				nArrivalTime = tData[4]
+				BotEcho("nBurst "..tostring(nBurst).." nDPS "..tostring(nDPS).." nLockdown "..tostring(nLockdown).." nArrivalTime "..tostring(nArrivalTime))
 			else
 				--this is the random guy ! just assume some values
 				local unitRandomGuy = tBrain[3]
@@ -2524,6 +2525,7 @@ function object.funcCoordinateGanks()
 		end
 		
 		--can kill?
+		BotEcho("nBurstSum "..tostring(nBurstSum).." nDPSSum "..tostring(nDPSSum).." nLockdownSum "..tostring(nLockdownSum).." Health "..tostring(nHealth).." < "..tostring(nBurstSum + nDPSSum *nLockdownSum))
 		if (nBurstSum + nDPSSum *nLockdownSum) > nHealth then
 			local nGankTime = nNow + nMaxTime
 			for _, tBrain in ipairs(tDistance) do
@@ -2533,6 +2535,7 @@ function object.funcCoordinateGanks()
 					tHeroStatus.nMoveTime = nGankTime - tHeroStatus.nMoveTime 
 					tHeroStatus.nGankTime = nGankTime
 					tHeroStatus.sStatus = "Wait"
+					BotEcho("GankTime is "..tostring(nGankTime))
 					tHeroStatus.unitTarget = unitEnemy
 				end
 				nNumberOfBots = nNumberOfBots - 1

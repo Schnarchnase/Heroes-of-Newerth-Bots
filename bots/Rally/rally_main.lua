@@ -1731,7 +1731,7 @@ function object.GetGankingPower(unitEnemy, tEnemyInformation)
 	
 	--Get Length of vector
 	local nDistanceY = vecDistance.y
-	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
+	local nDistance = nDistanceY / sin(atan2(nDistanceY, vecDistance.x))
 	
 	--Basic Arrival Time
 	local nArrivalTime = nDistance / unitSelf:GetMoveSpeed() * 1000
