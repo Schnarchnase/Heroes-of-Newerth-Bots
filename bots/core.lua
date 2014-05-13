@@ -2045,6 +2045,18 @@ function core.GetAttackDamageMinOnCreep(unitCreepTarget)
 	return nDamageMin
 end
 
+--------------------
+-- Magic immunity --
+--------------------
+function core.isMagicImmune(unit)
+	local tStates = { "State_Item3E", "State_Predator_Ability2", "State_Jereziah_Ability2", "State_Rampage_Ability1_Self", "State_Rhapsody_Ability4_Buff", "State_Hiro_Ability1" }
+	for _, sState in ipairs(tStates) do
+		if unit:HasState(sState) then
+			return true
+		end
+	end
+	return false
+end
 
 ------------------ misc overrides and remanes ------------------
 function core.CanSeeUnit(botBrain, unit)

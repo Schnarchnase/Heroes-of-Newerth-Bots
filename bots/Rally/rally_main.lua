@@ -78,6 +78,76 @@ local tSlamDamage = {400,650,900}
 local tSlamDamageBoosted = {600,850,1100}
 --normal and boosted
 local tSlamRadius = {250,500}
+	
+----------------------------------
+--	Rally specific harass bonuses
+--
+--  Abilities off cd increase harass util
+--  Ability use increases harass util for a time
+----------------------------------
+
+object.nCompellUp = 9
+object.nRoarUp = 4
+object.nSlamUp = 18
+object.nFinishHim = 50
+object.nSpeedBonus = 5
+
+object.nCompellUse = 20
+object.nRoarUse = 8
+object.nSlamUse = 60
+
+object.nCompellOffensiveThreshold = 40
+object.nCompellDefensiveThreshold = 70
+object.nRoarDefensiveThreshold = 60
+object.nSlamThreshold = 70
+
+----------------------------------
+--CustomHarassUtility
+----------------------------------
+
+--ally bonus near yourself
+object.nAllyBonus = 6
+--Heroes near unitTarget
+object.nHeroRangeSq = 1000*1000
+-- utility malus per enemy hero near target
+object.nEnemyThreat = 10
+
+object.nMeleeHarassBenousRangeSq = 200*200
+
+behaviorLib.nCreepPushbackMul = 0.5
+
+--Compell time for Roar-Use
+object.nCompellTime = 0
+--Slam time for miss-prediction
+object.nSlamTime = 0	
+
+--event damge
+object.nTrueDamgaTaken = 0
+object.nMagicalDamageTaken = 0
+object.nPhysicalDamageTaken = 0
+object.nItemuilddamageTime = 0
+
+--Rune Grab Range without bottle
+behaviorLib.nRuneGrabRange = 2000
+
+--Minimum treshold to help allies
+object.nHelpTreshold = 40
+
+--damage per minute greater than hp-percent
+object.nHPFactor = 0.2
+
+--Bottle utility modifiers
+object.tBottleStats = {
+	bottle_empty = 0,
+	bottle_1 = 1,
+	bottle_2 = 1,
+	bottle_3 = 1,
+	bottle_damage = 0.8,
+	bottle_illusion = 0.9,
+	bottle_movespeed = 0.6,
+	bottle_regen = 0.5,
+	bottle_stealth = 0.55
+}
 
 --------------------------------
 -- Lanes
@@ -275,51 +345,7 @@ function object:SkillBuild()
 	end	
 end
 
----------------------------------------------------
---                   Overrides                   --
----------------------------------------------------
-
-	
-----------------------------------
---	Rally specific harass bonuses
---
---  Abilities off cd increase harass util
---  Ability use increases harass util for a time
-----------------------------------
-
-object.nCompellUp = 9
-object.nRoarUp = 4
-object.nSlamUp = 18
-object.nFinishHim = 50
-object.nSpeedBonus = 5
-
-object.nCompellUse = 20
-object.nRoarUse = 8
-object.nSlamUse = 60
-
-object.nCompellOffensiveThreshold = 40
-object.nCompellDefensiveThreshold = 70
-object.nRoarDefensiveThreshold = 60
-object.nSlamThreshold = 70
-
-----------------------------------
---CustomHarassUtility
-----------------------------------
-
---ally bonus near yourself
-object.nAllyBonus = 6
---Heroes near unitTarget
-object.nHeroRangeSq = 1000*1000
--- utility malus per enemy hero near target
-object.nEnemyThreat = 10
-
-object.nMeleeHarassBenousRangeSq = 200*200
-
-behaviorLib.nCreepPushbackMul = 0.5
-
-object.nTrueDamgaTaken = 0
-object.nMagicalDamageTaken = 0
-object.nPhysicalDamageTaken = 0
+--Update damage taken for itembuild
 function object.UpdateDamageObservation(EventData)
 	
 	local sDamageType = EventData.DamageType
@@ -338,7 +364,7 @@ function object.UpdateDamageObservation(EventData)
 	--BotEcho("Damage Attempted: "..tostring(EventData.DamageAttempted).." and Applied: "..tostring(nDamageApplied))
 end
 
---Arachna ability use gives bonus to harass util for a while
+--Rally ability use gives bonus to harass util for a while
 function object:oncombateventOverride(EventData)
 	self:oncombateventOld(EventData)
 	
@@ -373,7 +399,9 @@ end
 object.oncombateventOld = object.oncombatevent
 object.oncombatevent 	= object.oncombateventOverride
 
---Util override
+----------------------------------
+--	Rally harass
+----------------------------------
 local function CustomHarassUtilityOverride(unitTarget)
 	local nUtility = 0
 	
@@ -509,10 +537,6 @@ local function CustomHarassUtilityOverride(unitTarget)
 end
 behaviorLib.CustomHarassUtility = CustomHarassUtilityOverride
 
-----------------------------------
---	Arachna harass actions
-----------------------------------
-object.nCompellTime = 0
 local function HarassHeroExecuteOverride(botBrain)
 	local unitTarget = behaviorLib.heroTarget
 	if unitTarget == nil or not unitTarget:IsValid() then
@@ -575,8 +599,9 @@ local function HarassHeroExecuteOverride(botBrain)
 		end
 	end
 	
-	
-	local bTargetRooted = unitTarget:IsStunned() or unitTarget:IsImmobilized() or unitTarget:GetMoveSpeed() < 200
+	local nMoveSpeed = unitTarget:GetMoveSpeed()
+	local bSlowed = nMoveSpeed and nMoveSpeed < 200
+	local bTargetRooted = unitTarget:IsStunned() or unitTarget:IsImmobilized() or bSlowed
 	local tLocalHeroes = core.localUnits["EnemyHeroes"]
 	
 	--use Compell
@@ -587,9 +612,11 @@ local function HarassHeroExecuteOverride(botBrain)
 			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetLocation)
 			object.nCompellTime = nNow
 		else 
-			local vecTargetPosition = object.GetCompellPosition (tLocalHeroes, vecMyPosition, 500, 120, 1)
-			bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetPosition or vecTargetLocation)
-			object.nCompellTime = nNow
+			local vecTargetPosition = object.GetCompellPosition (tLocalHeroes, vecMyPosition, 600, 120, 2)
+			if vecTargetPosition or (nTargetDistanceSq >= 360*360  and  nTargetDistanceSq <= 550*500) then 
+				bActionTaken = core.OrderAbilityEntityVector(botBrain, abilCompell, unitSelf, vecTargetPosition or vecTargetLocation)
+				object.nCompellTime = nNow
+			end
 		end
 	end
 	
@@ -792,7 +819,6 @@ function object.GetSlamPosition (tTargets, vecCenter, nRange, nDegree, nMin, nNo
 	end	
 end
 
---Credits to DarkFire for his basis version 
 function object.GetCompellPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow)
 	
 	if not tTargets or not nRange or not nWidth then
@@ -938,9 +964,15 @@ behaviorLib.PushBehavior["Execute"] = PushExecuteOverride
 local function RetreatFromThreatExecuteOverride(botBrain)
 	
 	local unitSelf = core.unitSelf
+	local bActionTaken = false
+	
+	if unitSelf:IsStealth() then
+		local vecPos = behaviorLib.PositionSelfBackUp()
+		bActionTaken = vecPos and core.OrderMoveToPosAndHoldClamp(botBrain, unitSelf, vecPos, false)
+	end
 	
 	--Portal Key: Port away
-	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler:GetItem("Item_PortalKey"))
+	bActionTaken = not bActionTaken and core.OrderBlinkItemToEscape(botBrain, unitSelf, itemHandler:GetItem("Item_PortalKey"))
 		
 	local vecMyPosition = unitSelf:GetPosition()
 	
@@ -990,8 +1022,14 @@ behaviorLib.CustomRetreatExecute = RetreatFromThreatExecuteOverride
 local function ReturnToHealAtWell(botBrain)
 	local unitSelf = core.unitSelf
 	
+	local bActionTaken = false
+	if unitSelf:IsStealth() then
+		local vecPos = behaviorLib.PositionSelfBackUp()
+		bActionTaken = vecPos and core.OrderMoveToPosAndHoldClamp(botBrain, unitSelf, vecPos, false)
+	end
+	
 	--Portal Key: Port away
-	local bActionTaken = core.OrderBlinkItemToEscape(botBrain, unitSelf, core.GetItem("Item_PortalKey"))
+	bActionTaken = not bActionTaken and core.OrderBlinkItemToEscape(botBrain, unitSelf, core.GetItem("Item_PortalKey"))
 	
 	--Compell home
 	local abilCompell = skills.abilCompell
@@ -1007,8 +1045,9 @@ end
 behaviorLib.CustomReturnToWellExecute = ReturnToHealAtWell
 
 local function HealAtWellExecute(botBrain)
+	local unitSelf = core.unitSelf
 	local itemBottle = itemHandler:GetItem("Item_Bottle")
-	if itemBottle and not core.unitSelf:HasState("State_Bottle") and itemBottle:GetActiveModifierKey() ~= "bottle_empty" then
+	if itemBottle and not unitSelf:IsStealth() and not unitSelf:HasState("State_Bottle") and itemBottle:GetActiveModifierKey() ~= "bottle_empty" then
 		return core.OrderItemClamp(botBrain, core.unitSelf, itemBottle)
 	end
 	
@@ -1016,11 +1055,7 @@ local function HealAtWellExecute(botBrain)
 end
 behaviorLib.CustomHealAtWellExecute = HealAtWellExecute
 
---no bottle on easy!!!
-
 --runeing
-behaviorLib.nRuneGrabRange = 2000
--- 30 if there is rune within 1000 and we see it
 local function PickRuneUtilityOverride(botBrain)
 	
 	local nUtility = 0
@@ -1073,14 +1108,14 @@ local function PickRuneUtilityOverride(botBrain)
 				local sLanename = tLane.sLaneName
 				local vecCreepLocation = teamBotBrain:GetFrontOfCreepWavePosition(sLanename)
 				local nCreepY = vecCreepLocation.y
-				BotEcho("nCreepY is "..tostring(nCreepY).." and Lanename: "..sLanename)
+				--BotEcho("nCreepY is "..tostring(nCreepY).." and Lanename: "..sLanename)
 				local nMyTeam = core.unitSelf:GetTeam()
 				if nMyTeam == 1 then --Legion
 					if (sLanename == "top" and nCreepY > 11500) or 
 						(sLanename == "bottom" and nCreepY > 3000) or
 						(sLanename == "middle" and nCreepY > 7500) then
 						--we can leave the lane, becuase it is pushed
-						BotEcho("Legion!!!")
+						--BotEcho("Legion!!!")
 						nUtility = nUtility + 20
 					end
 				else --Hellbourne
@@ -1131,7 +1166,76 @@ local function PickRuneExecuteOverride(botBrain)
 end
 behaviorLib.PickRuneBehavior["Execute"] = PickRuneExecuteOverride
 
- object.nHelpTreshold = 40
+local function funcBottlePowerModifier (sSatus)
+		return object.tBottleStats[sSatus]
+end
+
+local function BottleUtility(botBrain)
+	local bDebug = false
+	
+	--ToDo: Don't drink, when dotted
+	--ToDo: Drink in Critical moments
+	
+	local unitSelf = core.unitSelf
+	local nUniqueID = unitSelf:GetUniqueID()
+	local vecMyPosition = unitSelf:GetPosition()
+	local nMinDistanceSq = 300*300
+	
+	local bCanDrink=true
+	
+	local tProjectiles = eventsLib.incomingProjectiles["all"]
+	for _,tEventDate in pairs (tProjectiles) do
+		if bDebug then BotEcho("Incoming Projectiles! Do not drink") end
+		bCanDrink = false
+		break
+	end
+	
+	local tEnemies = core.localUnits["EnemyUnits"]
+	for _,unitEnemy in pairs (tEnemies) do
+		local unitEnemyTarget = unitEnemy:GetAttackTarget()
+		if unitEnemyTarget and unitEnemyTarget:GetUniqueID() == nUniqueID and 
+			(Vector3.Distance2DSq(vecMyPosition, unitEnemy:GetPosition()) < nMinDistanceSq or
+			unitEnemy:IsTower()) then
+			if bDebug then BotEcho("Enemies attacking me! Do not drink") end
+			bCanDrink = false
+			break
+		end
+	end
+	
+	local nUtility = behaviorLib.UseBottleUtility(botBrain)
+	if nUtility > 0 then
+		local itemBottle = behaviorLib.itemBottle
+		sItemBottleState = itemBottle and itemBottle:GetActiveModifierKey()
+		if sItemBottleState then
+			nUtility = nUtility * funcBottlePowerModifier(sItemBottleState) 
+		end
+	end
+	
+	behaviorLib.bCanDrink = bCanDrink
+	
+	return nUtility
+end
+behaviorLib.tItemBehaviors["Item_Bottle"]["Utility"] = BottleUtility
+
+local function BottleExecute(botBrain)
+	
+	if not behaviorLib.bCanDrink then
+		return behaviorLib.RetreatFromThreatBehavior["Execute"]
+	end
+	
+	local unitSelf = core.unitSelf
+	local itemBottle = itemHandler:GetItem("Item_Bottle")
+	if itemBottle and not unitSelf:HasState("State_Bottle") and 
+		not unitSelf:HasState("State_PowerupRegen") and
+		itemBottle:GetActiveModifierKey() ~= "bottle_empty" then
+		return core.OrderItemClamp(botBrain, unitSelf, itemBottle)
+	end
+	
+	return false
+end
+behaviorLib.tItemBehaviors["Item_Bottle"]["Execute"] = BottleExecute
+
+--saving allies
 function object.SavingAlliesUtility(botBrain)
 	local nUtility = 0 
 	
@@ -1165,7 +1269,7 @@ function object.SavingAlliesUtility(botBrain)
 		for _, unitAlly in pairs(tAlliesNear) do
 			if tSaveAllies[unitAlly:GetUniqueID()] then
 				--Isn't there a Restrained bool?or unitAlly:IsRestrained()
-				local bAllyIsInvalid = unitAlly:IsImmobilized()  or object.isMagicImmune(unitAlly)
+				local bAllyIsInvalid = unitAlly:IsImmobilized()  or core.isMagicImmune(unitAlly)
 				local nUtilityAlly = not bAllyIsInvalid and funcTimeToLive(unitAlly)
 				if nUtilityAlly and nUtilityAlly > nUtility then
 					nUtility = nUtilityAlly
@@ -1189,7 +1293,7 @@ function object.SavingAlliesExecution(botBrain)
 		return false
 	end
 	--or unitAlly:IsRestrained()
-	local bAllyIsInvalid = unitToSave:IsImmobilized()  or object.isMagicImmune(unitToSave)
+	local bAllyIsInvalid = unitToSave:IsImmobilized()  or core.isMagicImmune(unitToSave)
 	local abilCompell = skills.abilCompell
 	if not abilCompell:CanActivate() or bAllyIsInvalid then
 		return false
@@ -1217,15 +1321,15 @@ behaviorLib.SavingAllies["Execute"] = object.SavingAlliesExecution
 behaviorLib.SavingAllies["Name"] = "Saving Allies"
 tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies) 
 
+
 --Shopping
 
 --call setup function
 --We have to wait for our lane to ensure that we get the right items for midlane (Bottle)
 --We take care of the reservation ourself
 shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
+BotEcho("Wait for Lane decision? .."..tostring(shoppingLib.bWaitForLaneDecision))
 
-object.nItemuilddamageTime = 0
-object.nHPFactor = 0.2
 local function funcCheckSurvivalItem (tItemDecisions) 
 	local bDebug = true
 
@@ -1250,10 +1354,10 @@ local function funcCheckSurvivalItem (tItemDecisions)
 		local nTimeSpan = (nNow - nItemuilddamageTime)/60000 --damage per minute
 		object.nItemuilddamageTime = nNow
 		if bDebug then BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan)) end
-		if nMagicPercent > 0.6 and nMaxHP >= 1000 then
+		if nMagicPercent > 0.65 and nMaxHP >= 1000 then
 			if bDebug then BotEcho("Magic Percent :"..tostring(nMagicPercent)) end
 			return "magic"
-		elseif nPhysicalPercent > 0.6 and tItemDecisions.bBootsFinished then
+		elseif nPhysicalPercent > 0.65 and tItemDecisions.bBootsFinished then
 			if bDebug then BotEcho("Physical Percent :"..tostring(nPhysicalPercent)) end
 			return "physical"
 		elseif nSum / nTimeSpan > nMaxHP * object.nHPFactor then
@@ -1452,9 +1556,9 @@ local function RallyItemBuild()
 			tinsert(tItems, "Item_PostHaste")
 			tItemDecisions.bPostHaste = true
 			tItemDecisions.nBigItems = nBigItems +1
-		elseif tItemDecisions.bHelm or nGPM > 250 then
+		elseif tItemDecisions.bHelm or nGPM > 220 then
 			tinsert(tItems, "Item_EnhancedMarchers")
-		elseif nGPM > 180 then
+		elseif nGPM > 150 then
 			tinsert(tItems, "Item_Steamboots")
 		else --Stider Time!
 			tinsert(tItems, "Item_Striders")
@@ -1558,7 +1662,154 @@ end
 shoppingLib.CheckItemBuild = RallyItemBuild	
 
 
-object.nSlamTime = 0	
+---------------------------------------------------------
+---------------------------------------------------------
+-- Hunting!!
+---------------------------------------------------------
+---------------------------------------------------------
+
+
+--hunting/grouphunting util
+function object.funcCheckRequirementsToGank()
+	local unitSelf = core.unitSelf
+	local nHPPercent = unitSelf:GetHealthPercent()
+	local nMana =  unitSelf:GetMana()
+	
+
+	if nHPPercent < 0.4 or nMana < 130 then
+		return 0
+	end
+	
+	local nGankRange = 0
+	
+	local abilCompell = skills.abilCompell
+	local abilRoar = skills.abilRoar
+	local abilSlam = skills.abilSlam
+	
+	local nCompellManaCost = abilCompell:GetManaCost()
+	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
+		nGankRange = nGankRange + 600
+		nMana = nMana - nCompellManaCost
+	end
+	
+	local itemRange = core.GetItem("Item_PortalKey") or core.GetItem("Item_Stealth") or core.GetItem("Item_Sasuke")
+	local nItemRangeManaCost = itemRange and itemRange:GetManaCost() 
+	if itemRange and itemRange:CanActivate() and nMana >= nItemRangeManaCost then
+		nGankRange = nGankRange + 1500
+		nMana = nMana - nItemRangeManaCost
+	end
+	
+	local nSlamManaCost = abilSlam:GetManaCost()
+	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
+		nGankRange = nGankRange + 2000
+		nMana = nMana - nSlamManaCost
+	end
+	
+	local nRoarManaCost = abilRoar:GetManaCost()
+	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
+		nGankRange = nGankRange + 400
+	end
+	
+	if nHPPercent > 0.9 then
+		nGankRange  = nGankRange + 1000
+	end
+	
+	return nGankRange
+end
+
+function object.GetGankingPower(unitEnemy, tEnemyInformation)
+	
+	for sID,data in pairs (tEnemyInformation) do
+		BotEcho(sID..": "..tostring(data))
+	end
+	local unitSelf = core.unitSelf
+	
+	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition
+	local vecMyPosition = unitSelf:GetPosition()
+	
+	local vecDistance = vecEnemyPosition - vecMyPosition
+	
+	--Get Length of vector
+	local nDistanceY = vecDistance.y
+	local nDistance = nDistanceY / sin(atan(nDistanceY, vecDistance.x))
+	
+	--Basic Arrival Time
+	local nArrivalTime = nDistance / unitSelf:GetMoveSpeed() * 1000
+	local nBurst = 0
+	local nDPS = 0
+	local nLockDown = 0
+	
+	local abilCompell = skills.abilCompell
+	local abilRoar = skills.abilRoar
+	local abilSlam = skills.abilSlam
+	
+	local nMana = unitSelf:GetMana()
+	
+	local nCompellManaCost = abilCompell:GetManaCost()
+	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
+		local nLevel = abilCompell:GetLevel()
+		nLockDown = funcGetCompellStun(nLevel)
+		nBurst = funcGetCompellDamage(nLevel)
+		nMana = nMana - nCompellManaCost
+	end
+		
+	local nSlamManaCost = abilSlam:GetManaCost()
+	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
+		nBurst = nBurst + funcGetCompellDamage(abilSlam:GetLevel())
+		nLockDown = nLockDown > 0 and nLockDown - 750 or 0
+		nMana = nMana - nSlamManaCost
+	end
+	
+	local nRoarManaCost = abilRoar:GetManaCost()
+	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
+		nBurst = nBurst + funcGetRoarDamage(abilRoar:GetLevel())
+		nLockDown = nLockDown + 500 
+	end
+	
+	local nDamage = core.GetFinalAttackDamageAverage(unitSelf)
+	local nAttacksPerSecond = core.GetAttacksPerSecond(unitSelf)
+	local nDPS = nDamage * nAttacksPerSecond
+	
+	local nTargetArmor = tEnemyInformation.nPArmor * (1-funcGetBattleExpPierce(skills.abilBattleExp:GetLevel()))
+	if nTargetArmor > 0 then
+		local nModifier = 100 / (100+nTargetArmor*6)
+		nBurst = nBurst * nModifier
+		nDPS = nDPS * nModifier
+	end
+	
+	--burst, dps, lockdown, TimeToArrive
+	return {nBurst, nDPS, nLockDown, nArrivalTime}
+end
+
+--hunting exec
+function object.HuntingUtility(botBrain)
+	local teamBotBrain = core.teamBotBrain
+	local funcHuntingUtility = teamBotBrain and teamBotBrain.HuntingUtility
+	return funcHuntingUtility and funcHuntingUtility(botBrain) or 0
+end
+ 
+function object.HuntingExe(botBrain)
+	local sStatus = core.teamBotBrain.GetHuntingStatus(botBrain)
+	
+	BotEcho("tHunting")
+	if sStatus == "move" then
+		return behaviorLib.MoveExecute(botBrain, object.vecHuntingArea)
+	elseif sStatus == "Hunt" then
+		behaviorLib.heroTarget = object.unitHuntingTarget
+		behaviorLib.lastHarassUtil = 70
+		return HarassHeroExecuteOverride(botBrain)
+	end
+	return false
+end
+ 
+behaviorLib.Hunting = {}
+behaviorLib.Hunting["Utility"] = object.HuntingUtility
+behaviorLib.Hunting["Execute"] = object.HuntingExe
+behaviorLib.Hunting["Name"] = "Hunting"
+tinsert(behaviorLib.tBehaviors, behaviorLib.Hunting) 
+
+
+
 function object:onthinkOverride(tGameVariables)
 	self:onthinkOld(tGameVariables)
 	
@@ -1584,18 +1835,6 @@ end
 object.onthinkOld = object.onthink
 object.onthink 	= object.onthinkOverride
 
---------------------
--- Magic immunity --
---------------------
-function object.isMagicImmune(unit)
-	local tStates = { "State_Item3E", "State_Predator_Ability2", "State_Jereziah_Ability2", "State_Rampage_Ability1_Self", "State_Rhapsody_Ability4_Buff", "State_Hiro_Ability1" }
-	for _, sState in ipairs(tStates) do
-		if unit:HasState(sState) then
-			return true
-		end
-	end
-	return false
-end
 
 --####################################################################
 --####################################################################

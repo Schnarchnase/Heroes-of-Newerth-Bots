@@ -236,17 +236,21 @@ function object:onthink(tGameVariables)
 	end
 	 
 	object.funcUpdateEnemyInfo()
-	--[[
+	
 	local nNow = HoN.GetGameTime()
 	if object.nNextGankPlanTime <= nNow then
-	
 		object.funcCoordinateGanks()
+		object.nNextGankPlanTime = object.nNextGankPlanTime + 5000
+	end
+	if object.nNextSendOutTime <= nNow then
+		object.SendTroops()
+		object.nNextSendOutTime = object.nNextSendOutTime + 250
 	end
 	
-	object.SendTroops()
-	--]]
+	
 end
 object.nNextGankPlanTime = 0 
+object.nNextSendOutTime = 0
 
 function object.CheckRunes()
 	for _,rune in pairs(object.runes) do
@@ -2274,7 +2278,7 @@ function object.funcGetUnitPosition (unit, nTime, bIgnoreValidation)
 		return vecPosition
 	end
 end
---[[
+
 object.tHunterInformation = {}
 function object.GetHuntingStatus(botBrain)
 	
@@ -2289,7 +2293,7 @@ function object.GetHuntingStatus(botBrain)
 	if not tHeroStatus then
 		tHunterInformation[nID] = {}
 		tHeroStatus = tHunterInformation[nID]
-		tHeroStatus.sStatus = "Idle"
+		tHeroStatus.sStatus = "Off"
 		tHeroStatus.unitHero = unitHero
 		tHeroStatus.botBrain = botBrain
 	end
@@ -2311,9 +2315,10 @@ function object.SetHuntingStatus(botBrain, sStatus, nDistanceSq)
 	if not tHeroStatus then
 		object.GetHuntingStatus(botBrain)
 		tHeroStatus = tHunterInformation[nID]
+		tHeroStatus.unitHero = unitHero
 	end
 	tHeroStatus.sStatus = sStatus
-	tHeroStatus.nDistanceSq = nDistanceSq
+	tHeroStatus.nDistanceSq = nDistanceSq or tHeroStatus.nDistanceSq
 
 	return true
 end
@@ -2340,18 +2345,19 @@ function object.HuntingUtility(botBrain)
 	
 	
 	--check Requirements
-	local nDistanceSq = botBrain.funcCheckRequirementsToGank()
-	if not nDistanceSq then
+	local nDistance = botBrain.funcCheckRequirementsToGank()
+	if not nDistance then
 		object.SetHuntingStatus(botBrain, "Off")
 		return 0
 	end
-	object.SetHuntingStatus(botBrain, "Idle", nDistanceSq)
-    
 	
 	--check status for this bot
 	local sStatus = object.GetHuntingStatus(botBrain)
 	
-	if sStatus == "Idle" or sStatus == "Wait" then
+	if  sStatus == "Off" then
+		object.SetHuntingStatus(botBrain, "Idle", nDistance*nDistance)
+		return 0
+	elseif sStatus == "Idle" or sStatus == "Wait" then
 		return 0
 	elseif sStatus == "Move" then
 		botBrain.unitHuntingTarget,	botBrain.vecHuntingArea = object.funcGetHuntingTarget(botBrain)
@@ -2367,22 +2373,26 @@ object.nGankLevelBonus = 100
 object.nHpMissingBonus = 500
 object.nMaxdistanceSq = 2000*2000
 object.nMaxTimeFuture = 30*1000
+object.nRandomGuyRangeSq = 800*800
 function object.funcCoordinateGanks()
-	local bDebug = true
+	local bDebug = false
 	
-	local tGankingBots = {}
+	local tGankingBotsAvailable = {}
 	
 	--check avaible bots
 	local tHunterInformation = object.tHunterInformation
 	
-	for nId, tHeroStatus in pairs(tHunterInformation) do
-		if tHeroStatus.sStatus == "Idle" then
-			if bDebug then BotEcho("Bot avaible "..tHeroStatus.unitHero:GetTypeName()) end
-			tinsert(tGankingBots, tHeroStatus)
+	local tAllies = object.tAllyHeroes
+	for _, unitAlly in pairs (tAllies) do
+		--check hunterinformation, if possible
+		local tHeroStatus = tHunterInformation[unitAlly:GetUniqueID()]
+		if not tHeroStatus or (tHeroStatus and tHeroStatus.sStatus == "Idle") then
+			if bDebug then BotEcho("Bot available "..unitAlly:GetTypeName()) end
+			tinsert(tGankingBotsAvailable, tHeroStatus or unitAlly)
 		end
 	end
 	
-	local nNumberOfGankingBots = #tGankingBots
+	local nNumberOfGankingBots = #tGankingBotsAvailable
 	if bDebug then BotEcho("Number of bots: "..nNumberOfGankingBots) end
 	
 	if nNumberOfGankingBots < 1 then return end 
@@ -2449,9 +2459,14 @@ function object.funcCoordinateGanks()
 		
 		local tDistance = {}
 		
-		for _, tGankingBot in ipairs(tGankingBots) do
+		for _, tGankingBot in ipairs(tGankingBotsAvailable) do
 			local unitHero = tGankingBot.unitHero
 			local nDistanceSq = tGankingBot.nDistanceSq
+			if not unitHero then
+				--this is a random guy
+				unitHero = tGankingBot
+				nDistanceSq = object.nRandomGuyRangeSq
+			end
 			local nDistanceToEnemy = Vector3.Distance2DSq(vecEnemyPosition, unitHero:GetPosition())
 			if nDistanceToEnemy < nDistanceSq then
 				tinsert(tDistance, {nDistanceToEnemy, tGankingBot.botBrain, tGankingBot})				
@@ -2474,17 +2489,31 @@ function object.funcCoordinateGanks()
 		--check ganking power
 		for _, tBrain in ipairs(tDistance) do
 			local botBrain = tBrain[2]
-			local nBurst, nDPS, nLockdown, nArrivalTime = botBrain.GetGankingPower(unitEnemy, object)
-			
-			if nBurst and nDPS and nLockdown and nArrivalTime then
-			
+			local nBurst = nil
+			local nDPS = nil
+			local nLockdown = nil
+			local nArrivalTime = nil
+			if botBrain then
+				local tData = botBrain.GetGankingPower(unitEnemy, tEnemyInformation)
+				nBurst = tData[1]
+				nDPS = tData[2]
+				nLockdown = tData[3]
+				nArrivalTime = tData[4]
+			else
+				--this is the random guy ! just assume some values
+				local unitRandomGuy = tBrain[3]
+				nBurst = unitRandomGuy:GetLevel()*25+100
+				nDPS = core.GetFinalAttackDamageAverage(unitRandomGuy) *  core.GetAttacksPerSecond(unitRandomGuy)
+				nLockdown = 0
+				nArrivalTime = 0
 			end
-			
 			if nArrivalTime > nMaxTime then
 				nMaxTime = nArrivalTime
 			end
 			
-			tBrain[3].nMoveTime = nArrivalTime
+			if botBrain then
+				tBrain[3].nMoveTime = nArrivalTime
+			end
 			nNumberOfBots = nNumberOfBots + 1
 			nBurstSum = nBurstSum + nBurst
             nDPSSum = nDPSSum + nDPS
@@ -2500,10 +2529,12 @@ function object.funcCoordinateGanks()
 			for _, tBrain in ipairs(tDistance) do
 				local tHeroStatus = tBrain[3]
 				
-				tHeroStatus.nMoveTime = nGankTime - tHeroStatus.nMoveTime 
-				tHeroStatus.nGankTime = nGankTime
-				tHeroStatus.sStatus = "Wait"
-				tHeroStatus.unitTarget = unitEnemy
+				if tHeroStatus and tHeroStatus.nMoveTime then 
+					tHeroStatus.nMoveTime = nGankTime - tHeroStatus.nMoveTime 
+					tHeroStatus.nGankTime = nGankTime
+					tHeroStatus.sStatus = "Wait"
+					tHeroStatus.unitTarget = unitEnemy
+				end
 				nNumberOfBots = nNumberOfBots - 1
 				if nNumberOfBots <= 0 then
 					break
@@ -2534,10 +2565,13 @@ function object.SendTroops()
 			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Hunt") end
 			tHeroStatus.sStatus = "Hunt"
 		elseif tHeroStatus.sStatus == "Hunt" and tHeroStatus.nGankTime <= nNow + 7000 then
+			local unitEnemy = tHeroStatus.unitTarget
+			if unitEnemy then 
+				object.tCurrentlyGanked[unitEnemy:GetUniqueID()] = nil
+			end
 			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Idle") end
 			tHeroStatus.sStatus = "Idle"
 		end
 	end
 	
 end
---]]
