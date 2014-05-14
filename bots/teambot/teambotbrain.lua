@@ -2318,6 +2318,7 @@ function object.SetHuntingStatus(botBrain, sStatus, nDistanceSq)
 		tHeroStatus.unitHero = unitHero
 	end
 	tHeroStatus.sStatus = sStatus
+	
 	tHeroStatus.nDistanceSq = nDistanceSq or tHeroStatus.nDistanceSq
 
 	return true
@@ -2525,8 +2526,8 @@ function object.funcCoordinateGanks()
 		end
 		
 		--can kill?
-		BotEcho("nBurstSum "..tostring(nBurstSum).." nDPSSum "..tostring(nDPSSum).." nLockdownSum "..tostring(nLockdownSum).." Health "..tostring(nHealth).." < "..tostring(nBurstSum + nDPSSum *nLockdownSum))
-		if (nBurstSum + nDPSSum *nLockdownSum) > nHealth then
+		--BotEcho("nBurstSum "..tostring(nBurstSum).." nDPSSum "..tostring(nDPSSum).." nLockdownSum "..tostring(nLockdownSum).." Health "..tostring(nHealth).." < "..tostring(nBurstSum + nDPSSum *nLockdownSum))
+		if (nBurstSum + nDPSSum *nLockdownSum/1000) > nHealth then
 			local nGankTime = nNow + nMaxTime
 			for _, tBrain in ipairs(tDistance) do
 				local tHeroStatus = tBrain[3]

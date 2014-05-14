@@ -1783,22 +1783,30 @@ end
 
 --hunting exec
 function object.HuntingUtility(botBrain)
+	local bDebug = false
 	local teamBotBrain = core.teamBotBrain
 	local funcHuntingUtility = teamBotBrain and teamBotBrain.HuntingUtility
-	return funcHuntingUtility and funcHuntingUtility(botBrain) or 0
+	
+	local nUtility = funcHuntingUtility and funcHuntingUtility(botBrain) or 0
+	
+	if bDebug then BotEcho("Hunting utility: "..tostring(nUtility)) end
+	
+	return nUtility
 end
  
 function object.HuntingExe(botBrain)
 	local sStatus = core.teamBotBrain.GetHuntingStatus(botBrain)
 	
-	BotEcho("tHunting")
 	if sStatus == "move" then
+		BotEcho("Moving to Area for Hunting!")
 		return behaviorLib.MoveExecute(botBrain, object.vecHuntingArea)
 	elseif sStatus == "Hunt" then
+		BotEcho("Hunting!")
 		behaviorLib.heroTarget = object.unitHuntingTarget
 		behaviorLib.lastHarassUtil = 70
 		return HarassHeroExecuteOverride(botBrain)
 	end
+	
 	return false
 end
  
