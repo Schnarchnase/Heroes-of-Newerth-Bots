@@ -154,15 +154,15 @@ object.tBottleStats = {
 --------------------------------
 core.tLanePreferences = {Jungle = 0, Mid = 5, ShortSolo = 4, LongSolo = 4, ShortSupport = 1, LongSupport = 1, ShortCarry = 4, LongCarry = 4}
 
---------------------------------
--- Skills
---------------------------------
---[[
-Max Compel first
-Slam whenever possible
-Decide between BattleExp and Roar depending on enemy armor
-Stats last
---]] 
+--####################################################################
+--####################################################################
+--#								 									##
+--#   ABILITY FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Returns Compell Damage
 local function funcGetCompellDamage (nLevel)
 	if not nLevel or nLevel > 4 or nLevel < 1 then
 		return 0
@@ -170,6 +170,7 @@ local function funcGetCompellDamage (nLevel)
 	return tCompellDamage[nLevel]
 end
 
+--Returns stun-duration of Compell
 local function funcGetCompellStun (nLevel)
 	if not nLevel or nLevel > 4 or nLevel < 1 then
 		return 0
@@ -177,6 +178,7 @@ local function funcGetCompellStun (nLevel)
 	return tCompellStun[nLevel]
 end
 
+--Returns Roar Damage
 local function funcGetRoarDamage (nLevel)
 	if not nLevel or nLevel > 4 or nLevel < 1 then
 		return 0
@@ -184,6 +186,7 @@ local function funcGetRoarDamage (nLevel)
 	return tRoarDamage[nLevel]
 end
 
+--Returns Battle Experience Pierce
 local function funcGetBattleExpPierce (nLevel)
 	if not nLevel or nLevel > 4 or nLevel < 1 then
 		return 0
@@ -191,6 +194,7 @@ local function funcGetBattleExpPierce (nLevel)
 	return tBattleExpPierce[nLevel]
 end
 
+--Returns Slam Damage
 local function funcGetSlamDamage (nLevel)
 	if not nLevel or nLevel > 3 or nLevel < 1 then
 		return 0
@@ -203,6 +207,7 @@ local function funcGetSlamDamage (nLevel)
 	end
 end
 
+--Returns Slam Radius
 local function funcGetSlamRadius ()
 	local itemStaffOfTheMaster = core.GetItem("Item_Intelligence7")
 	if itemStaffOfTheMaster then
@@ -212,6 +217,215 @@ local function funcGetSlamRadius ()
 	end
 end
 
+-- Find the angle in degrees between two targets. Modified from St0l3n_ID's AngToTarget code
+local function AngleBetween(vecSelf, vecTarget)
+	local nDeltaY = vecTarget.y - vecSelf.y
+	local nDeltaX = vecTarget.x - vecSelf.x
+ 
+	return floor(core.RadToDeg(atan2(nDeltaY, nDeltaX)))
+end
+
+--Get optimal Slam Position
+--Credits to DarkFire for his basis version 
+function object.GetSlamPosition (tTargets, vecCenter, nRange, nDegree, nMin, nNow)
+	
+	if not tTargets or not nRange or not nDegree then
+		return
+	end
+	
+	if not nNow then
+		nNow = HoN.GetGameTime()
+	end
+	
+	if not nMin then
+		nMin = 1
+	end
+	
+	if core.NumberElements(tTargets) < nMin then 
+		return
+	end
+	
+	local unitSelf = core.unitSelf
+	local vecMyPosition = vecCenter or unitSelf:GetPosition()
+	
+	--getTembot
+	local teamBotBrain = core.teamBotBrain
+	if not teamBotBrain then 
+		return 
+	end
+	
+	--Get all units in range
+	local tUnitsInRangeVectors = {}
+	local nRangesq = nRange*nRange
+	for _, unit in pairs (tTargets) do
+		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow)
+		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangesq then
+			tinsert(tUnitsInRangeVectors, vecPosition)
+		end
+	end
+	
+	if #tUnitsInRangeVectors < nMin then
+		return
+	end
+	
+	local tAnglesOfUnits = {}
+	local nLoopDegree = nDegree / 2
+	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
+		local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
+		tinsert(tAnglesOfUnits, {nMidAngle+nLoopDegree, nMidAngle, nMidAngle-nLoopDegree})
+	end
+		
+	local tBestGroup = {}
+	local tCurrentGroup = {}
+	
+	for _,tStartAngles in ipairs (tAnglesOfUnits) do
+		local nStartAngle = tStartAngles[1]
+		local nEndAngle = tStartAngles[3]
+		if nStartAngle <= -90 then
+			nStartAngle = nStartAngle + 360
+			nEndAngle = nEndAngle + 360
+		end
+		
+		for _,tAngles in ipairs (tAnglesOfUnits) do
+		
+			local nHighAngle = tAngles[1]
+			local nMidAngle = tAngles[2]
+			local nLowAngle = tAngles[3]
+			
+			if nStartAngle > 90 and nStartAngle < 270  then
+				-- Avoid doing calculations near the break in numbers
+				if nHighAngle < 0 then
+					nHighAngle = nHighAngle + 360
+				end
+				   
+				if nMidAngle < 0 then
+					nMidAngle = nMidAngle + 360
+				end
+				   
+				if nLowAngle < 0 then
+					nLowAngle = nLowAngle + 360
+				end
+			end
+			
+			if (nStartAngle <= nMidAngle and nMidAngle <= nEndAngle) 
+				or (nHighAngle >= nStartAngle and nLowAngle <= nStartAngle) 
+				or (nHighAngle >= nEndAngle and nLowAngle <= nEndAngle) then
+				
+				tinsert(tCurrentGroup, nMidAngle)
+			end
+		end
+	
+		if #tCurrentGroup > #tBestGroup then
+			tBestGroup = tCurrentGroup
+		end
+		
+		tCurrentGroup = {}
+	end
+	
+	local nBestGroupSize = #tBestGroup
+	
+	if  nBestGroupSize >= nMin then
+		tsort(tBestGroup)
+			 
+		local nAvgAngle = core.DegToRad((tBestGroup[1] + tBestGroup[nBestGroupSize]) / 2)
+		return Vector3.Create(cos(nAvgAngle), sin(nAvgAngle)) * nRange
+	end	
+end
+
+--Get optimal Compell Position
+function object.GetCompellPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow)
+	
+	if not tTargets or not nRange or not nWidth then
+		return
+	end
+	
+	if not nNow then
+		nNow = HoN.GetGameTime()
+	end
+	
+	if not nMin then
+		nMin = 1
+	end
+	
+	if core.NumberElements(tTargets) < nMin then 
+		return
+	end
+	
+	local unitSelf = core.unitSelf
+	local vecMyPosition = vecCenter or unitSelf:GetPosition()
+	
+	--getTembot
+	local teamBotBrain = core.teamBotBrain
+	if not teamBotBrain then 
+		return 
+	end
+	
+	--Get all units in range
+	local tUnitsInRangeVectors = {}
+	local nRangeSq = nRange*nRange
+	for _, unit in pairs (tTargets) do
+		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow) or unit:GetPosition()
+		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangeSq then
+			tinsert(tUnitsInRangeVectors, vecPosition)
+		end
+	end
+	
+	if #tUnitsInRangeVectors < nMin then
+		return
+	end
+	
+	local tVectorsOfUnits = {}
+	--do sth
+	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
+		local vecToTarget = vecPosition - vecMyPosition
+		local vecDirection = vecMyPosition+Vector3.Normalize(vecToTarget) * nRange / 2
+		tinsert(tVectorsOfUnits, {vecPosition, vecDirection, vecToTarget})
+	end
+	
+			
+	--------------
+		
+	local tBestGroup = {nNumber=0}
+	
+	local nRangeMid = (nRange + nWidth) / 2
+	local nRangeSqBig = nRangeMid * nRangeMid
+	local nRangesqSmall = nWidth * nWidth
+	
+	for _,tVectors in ipairs (tVectorsOfUnits) do
+		local vecMid = tVectors[2]
+		local vecToUnit = tVectors[3]
+		local nCurrentNumber = 0
+		for _,tOtherVectors in ipairs (tVectorsOfUnits) do
+			local vecTarget = tOtherVectors[1]
+			local vecLength = tOtherVectors[3] - Vector3.Project(vecToUnit, tOtherVectors[3])
+			local nDistanceSq = vecLength.x*vecLength.x + vecLength.y*vecLength.y
+			
+			local nDistanceFromMidSq = Vector3.Distance2DSq(vecTarget, vecMid)
+			if nDistanceFromMidSq <= nRangeSqBig and nDistanceSq <= nRangesqSmall then
+				nCurrentNumber = nCurrentNumber + 1
+			end
+		end
+	
+		if nCurrentNumber > tBestGroup.nNumber then
+			tBestGroup.nNumber = nCurrentNumber
+			tBestGroup.vecDirection = vecToUnit
+		end
+	end
+		
+	if  tBestGroup.nNumber >= nMin then
+		return tBestGroup.vecDirection
+	end	
+end
+
+--####################################################################
+--####################################################################
+--#								 									##
+--#   SkillBuild FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Check if we should level Roar over Battle Experience
 local function funcCheckingRoarPrioity ()
 	local bDebugEchos = false
 	
@@ -297,6 +511,7 @@ local function funcCheckingRoarPrioity ()
 	return true
 end
 
+--Skillbuild
 function object:SkillBuild()
 
 	local unitSelf = core.unitSelf
@@ -335,17 +550,23 @@ function object:SkillBuild()
 		local abilBattleExp = skills.abilBattleExp
 		if bLevelRoarOverBExp then
 			abilRoar:LevelUp()
-			return
 		else
 			abilBattleExp:LevelUp()
-			return
 		end
 	else
 		skills.abilAttributeBoost:LevelUp()
 	end	
 end
 
---Update damage taken for itembuild
+--####################################################################
+--####################################################################
+--#								 									##
+--#   EVENT FUNCTIONSS					       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Update damage taken for itembuild-use
 function object.UpdateDamageObservation(EventData)
 	
 	local sDamageType = EventData.DamageType
@@ -378,10 +599,9 @@ function object:oncombateventOverride(EventData)
 		end
 	end
 	
-	if EventData.Type == "Ability" then
-		if EventData.InflictorName == "Ability_Rally1" and object.nCurrentBehavior == "HarassHero" then
+	if EventData.Type == "Ability" and core.GetCurrentBehaviorName(object)  == "HarassHero"  then
+		if EventData.InflictorName == "Ability_Rally1" then
 			nAddBonus = nAddBonus + object.nCompellUse
-			object.nGraveyardUseTime = EventData.TimeStamp
 		elseif EventData.InflictorName == "Ability_Rally2" then
 			nAddBonus = nAddBonus + object.nRoarUse
 		elseif EventData.InflictorName == "Ability_Rally4" then
@@ -399,9 +619,15 @@ end
 object.oncombateventOld = object.oncombatevent
 object.oncombatevent 	= object.oncombateventOverride
 
-----------------------------------
---	Rally harass
-----------------------------------
+--####################################################################
+--####################################################################
+--#								 									##
+--#   HARASSING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Custom Harass Utility
 local function CustomHarassUtilityOverride(unitTarget)
 	local nUtility = 0
 	
@@ -503,7 +729,7 @@ local function CustomHarassUtilityOverride(unitTarget)
 			end
 		end
 		
-		local nEnemyMovementSpeed = tEnemyInformation.nPArmor
+		local nEnemyMovementSpeed = tEnemyInformation.nMoveSpeed
 		local nSpeeddifference = nEnemyMovementSpeed - unitSelf:GetMoveSpeed()
 		
 		if nSpeeddifference > 100 then
@@ -537,6 +763,7 @@ local function CustomHarassUtilityOverride(unitTarget)
 end
 behaviorLib.CustomHarassUtility = CustomHarassUtilityOverride
 
+--Harass Execute
 local function HarassHeroExecuteOverride(botBrain)
 	local unitTarget = behaviorLib.heroTarget
 	if unitTarget == nil or not unitTarget:IsValid() then
@@ -670,8 +897,15 @@ end
 object.harassExecuteOld = behaviorLib.HarassHeroBehavior["Execute"]
 behaviorLib.HarassHeroBehavior["Execute"] = HarassHeroExecuteOverride
 
+--####################################################################
+--####################################################################
+--#								 									##
+--#   PUSHING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
 
---push utility
+--Pushing Utility
 local function PushOverride(botBrain)
 	local bDebug = false
 	local nUtility = object.PushOldUtility(botBrain)
@@ -705,205 +939,7 @@ end
 object.PushOldUtility = behaviorLib.PushUtility
 behaviorLib.PushBehavior["Utility"] = PushOverride
 
--- Find the angle in degrees between two targets. Modified from St0l3n_ID's AngToTarget code
-local function AngleBetween(vecSelf, vecTarget)
-	local nDeltaY = vecTarget.y - vecSelf.y
-	local nDeltaX = vecTarget.x - vecSelf.x
- 
-	return floor(core.RadToDeg(atan2(nDeltaY, nDeltaX)))
-end
-
---Credits to DarkFire for his basis version 
-function object.GetSlamPosition (tTargets, vecCenter, nRange, nDegree, nMin, nNow)
-	
-	if not tTargets or not nRange or not nDegree then
-		return
-	end
-	
-	if not nNow then
-		nNow = HoN.GetGameTime()
-	end
-	
-	if not nMin then
-		nMin = 1
-	end
-	
-	if core.NumberElements(tTargets) < nMin then 
-		return
-	end
-	
-	local unitSelf = core.unitSelf
-	local vecMyPosition = vecCenter or unitSelf:GetPosition()
-	
-	--getTembot
-	local teamBotBrain = core.teamBotBrain
-	if not teamBotBrain then 
-		return 
-	end
-	
-	--Get all units in range
-	local tUnitsInRangeVectors = {}
-	local nRangesq = nRange*nRange
-	for _, unit in pairs (tTargets) do
-		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow)
-		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangesq then
-			tinsert(tUnitsInRangeVectors, vecPosition)
-		end
-	end
-	
-	if #tUnitsInRangeVectors < nMin then
-		return
-	end
-	
-	local tAnglesOfUnits = {}
-	local nLoopDegree = nDegree / 2
-	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
-		local nMidAngle = AngleBetween(vecMyPosition, vecPosition)
-		tinsert(tAnglesOfUnits, {nMidAngle+nLoopDegree, nMidAngle, nMidAngle-nLoopDegree})
-	end
-		
-	local tBestGroup = {}
-	local tCurrentGroup = {}
-	
-	for _,tStartAngles in ipairs (tAnglesOfUnits) do
-		local nStartAngle = tStartAngles[1]
-		local nEndAngle = tStartAngles[3]
-		if nStartAngle <= -90 then
-			nStartAngle = nStartAngle + 360
-			nEndAngle = nEndAngle + 360
-		end
-		
-		for _,tAngles in ipairs (tAnglesOfUnits) do
-		
-			local nHighAngle = tAngles[1]
-			local nMidAngle = tAngles[2]
-			local nLowAngle = tAngles[3]
-			
-			if nStartAngle > 90 and nStartAngle < 270  then
-				-- Avoid doing calculations near the break in numbers
-				if nHighAngle < 0 then
-					nHighAngle = nHighAngle + 360
-				end
-				   
-				if nMidAngle < 0 then
-					nMidAngle = nMidAngle + 360
-				end
-				   
-				if nLowAngle < 0 then
-					nLowAngle = nLowAngle + 360
-				end
-			end
-			
-			if (nStartAngle <= nMidAngle and nMidAngle <= nEndAngle) 
-				or (nHighAngle >= nStartAngle and nLowAngle <= nStartAngle) 
-				or (nHighAngle >= nEndAngle and nLowAngle <= nEndAngle) then
-				
-				tinsert(tCurrentGroup, nMidAngle)
-			end
-		end
-	
-		if #tCurrentGroup > #tBestGroup then
-			tBestGroup = tCurrentGroup
-		end
-		
-		tCurrentGroup = {}
-	end
-	
-	local nBestGroupSize = #tBestGroup
-	
-	if  nBestGroupSize >= nMin then
-		tsort(tBestGroup)
-			 
-		local nAvgAngle = core.DegToRad((tBestGroup[1] + tBestGroup[nBestGroupSize]) / 2)
-		return Vector3.Create(cos(nAvgAngle), sin(nAvgAngle)) * nRange
-	end	
-end
-
-function object.GetCompellPosition (tTargets, vecCenter, nRange, nWidth, nMin, nNow)
-	
-	if not tTargets or not nRange or not nWidth then
-		return
-	end
-	
-	if not nNow then
-		nNow = HoN.GetGameTime()
-	end
-	
-	if not nMin then
-		nMin = 1
-	end
-	
-	if core.NumberElements(tTargets) < nMin then 
-		return
-	end
-	
-	local unitSelf = core.unitSelf
-	local vecMyPosition = vecCenter or unitSelf:GetPosition()
-	
-	--getTembot
-	local teamBotBrain = core.teamBotBrain
-	if not teamBotBrain then 
-		return 
-	end
-	
-	--Get all units in range
-	local tUnitsInRangeVectors = {}
-	local nRangeSq = nRange*nRange
-	for _, unit in pairs (tTargets) do
-		local vecPosition = teamBotBrain.funcGetUnitPosition(unit, nNow) or unit:GetPosition()
-		if vecPosition and Vector3.Distance2DSq(vecPosition, vecCenter) <= nRangeSq then
-			tinsert(tUnitsInRangeVectors, vecPosition)
-		end
-	end
-	
-	if #tUnitsInRangeVectors < nMin then
-		return
-	end
-	
-	local tVectorsOfUnits = {}
-	--do sth
-	for _, vecPosition in ipairs (tUnitsInRangeVectors) do
-		local vecToTarget = vecPosition - vecMyPosition
-		local vecDirection = vecMyPosition+Vector3.Normalize(vecToTarget) * nRange / 2
-		tinsert(tVectorsOfUnits, {vecPosition, vecDirection, vecToTarget})
-	end
-	
-			
-	--------------
-		
-	local tBestGroup = {nNumber=0}
-	
-	local nRangeMid = (nRange + nWidth) / 2
-	local nRangeSqBig = nRangeMid * nRangeMid
-	local nRangesqSmall = nWidth * nWidth
-	
-	for _,tVectors in ipairs (tVectorsOfUnits) do
-		local vecMid = tVectors[2]
-		local vecToUnit = tVectors[3]
-		local nCurrentNumber = 0
-		for _,tOtherVectors in ipairs (tVectorsOfUnits) do
-			local vecTarget = tOtherVectors[1]
-			local vecLength = tOtherVectors[3] - Vector3.Project(vecToUnit, tOtherVectors[3])
-			local nDistanceSq = vecLength.x*vecLength.x + vecLength.y*vecLength.y
-			
-			local nDistanceFromMidSq = Vector3.Distance2DSq(vecTarget, vecMid)
-			if nDistanceFromMidSq <= nRangeSqBig and nDistanceSq <= nRangesqSmall then
-				nCurrentNumber = nCurrentNumber + 1
-			end
-		end
-	
-		if nCurrentNumber > tBestGroup.nNumber then
-			tBestGroup.nNumber = nCurrentNumber
-			tBestGroup.vecDirection = vecToUnit
-		end
-	end
-		
-	if  tBestGroup.nNumber >= nMin then
-		return tBestGroup.vecDirection
-	end	
-end
-
---PushExec
+--Pushing Execute
 local function PushExecuteOverride(botBrain) 
 	local bActionTaken = false
 	
@@ -960,7 +996,19 @@ end
 object.PushOldExecute = behaviorLib.PushExecute
 behaviorLib.PushBehavior["Execute"] = PushExecuteOverride
 
---Retreat exec
+--####################################################################
+--####################################################################
+--#								 									##
+--#   RETREATING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+----------------------------------------------------
+-- Many functions in Survival-Lib!
+----------------------------------------------------
+
+--Retreat Execute
 local function RetreatFromThreatExecuteOverride(botBrain)
 	
 	local unitSelf = core.unitSelf
@@ -1016,9 +1064,15 @@ end
 behaviorLib.CustomRetreatExecute = RetreatFromThreatExecuteOverride
 
 
-------------------------------------------------------------------
---Heal at well execute
-------------------------------------------------------------------
+--####################################################################
+--####################################################################
+--#								 									##
+--#   HEALING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Item and abilities for traveling home
 local function ReturnToHealAtWell(botBrain)
 	local unitSelf = core.unitSelf
 	
@@ -1044,6 +1098,7 @@ local function ReturnToHealAtWell(botBrain)
 end
 behaviorLib.CustomReturnToWellExecute = ReturnToHealAtWell
 
+--Well-bottling
 local function HealAtWellExecute(botBrain)
 	local unitSelf = core.unitSelf
 	local itemBottle = itemHandler:GetItem("Item_Bottle")
@@ -1055,7 +1110,15 @@ local function HealAtWellExecute(botBrain)
 end
 behaviorLib.CustomHealAtWellExecute = HealAtWellExecute
 
---runeing
+--####################################################################
+--####################################################################
+--#								 									##
+--#   MidLane FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
+
+--Pick-Rune Utility
 local function PickRuneUtilityOverride(botBrain)
 	
 	local nUtility = 0
@@ -1143,6 +1206,7 @@ local function PickRuneUtilityOverride(botBrain)
 end
 behaviorLib.PickRuneBehavior["Utility"] = PickRuneUtilityOverride
 
+--Pick Rune Execute
 local function PickRuneExecuteOverride(botBrain)
 	tRune = behaviorLib.tRuneToPick
 	if tRune == nil or tRune.vecLocation == nil or tRune.bPicked then
@@ -1166,10 +1230,12 @@ local function PickRuneExecuteOverride(botBrain)
 end
 behaviorLib.PickRuneBehavior["Execute"] = PickRuneExecuteOverride
 
+--Bottle Modifier
 local function funcBottlePowerModifier (sSatus)
 		return object.tBottleStats[sSatus]
 end
 
+--Bottle-Use Utility
 local function BottleUtility(botBrain)
 	local bDebug = false
 	
@@ -1217,6 +1283,7 @@ local function BottleUtility(botBrain)
 end
 behaviorLib.tItemBehaviors["Item_Bottle"]["Utility"] = BottleUtility
 
+--Bottle-Execute-Utility
 local function BottleExecute(botBrain)
 	
 	if not behaviorLib.bCanDrink then
@@ -1235,7 +1302,14 @@ local function BottleExecute(botBrain)
 end
 behaviorLib.tItemBehaviors["Item_Bottle"]["Execute"] = BottleExecute
 
---saving allies
+--####################################################################
+--####################################################################
+--#								 									##
+--#   SavingAllies FUNCTIONSS				   						##
+--#								 									##
+--####################################################################
+--####################################################################
+
 function object.SavingAlliesUtility(botBrain)
 	local nUtility = 0 
 	
@@ -1322,14 +1396,20 @@ behaviorLib.SavingAllies["Name"] = "Saving Allies"
 tinsert(behaviorLib.tBehaviors, behaviorLib.SavingAllies) 
 
 
---Shopping
+--####################################################################
+--####################################################################
+--#								 									##
+--#   SHOPPING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
 
 --call setup function
 --We have to wait for our lane to ensure that we get the right items for midlane (Bottle)
 --We take care of the reservation ourself
 shoppingLib.Setup({bWaitForLaneDecision = true, bReserveItems = false })
-BotEcho("Wait for Lane decision? .."..tostring(shoppingLib.bWaitForLaneDecision))
 
+--Check, if we need special protection items
 local function funcCheckSurvivalItem (tItemDecisions) 
 	local bDebug = true
 
@@ -1354,10 +1434,10 @@ local function funcCheckSurvivalItem (tItemDecisions)
 		local nTimeSpan = (nNow - nItemuilddamageTime)/60000 --damage per minute
 		object.nItemuilddamageTime = nNow
 		if bDebug then BotEcho("Damage sum: "..tostring(nSum).." Result: "..tostring(nSum / nTimeSpan)) end
-		if nMagicPercent > 0.65 and nMaxHP >= 1000 then
+		if nMagicPercent > 0.70 and nMaxHP >= 1000 then
 			if bDebug then BotEcho("Magic Percent :"..tostring(nMagicPercent)) end
 			return "magic"
-		elseif nPhysicalPercent > 0.65 and tItemDecisions.bBootsFinished then
+		elseif nPhysicalPercent > 0.70 and tItemDecisions.bBootsFinished then
 			if bDebug then BotEcho("Physical Percent :"..tostring(nPhysicalPercent)) end
 			return "physical"
 		elseif nSum / nTimeSpan > nMaxHP * object.nHPFactor then
@@ -1445,6 +1525,8 @@ local function RallyItemBuild()
 			if bDebugInfo then BotEcho("Need Vestments") end
 			tItemDecisions.bVestment = true
 			return true
+		elseif not tItemDecisions.bMovementEnhancer then
+			--Do nothing, Before upgrading survivability we need our PK
 		elseif not tItemDecisions.bShamans then
 			tinsert(shoppingLib.tItembuild, "Item_MagicArmor2")
 			if bDebugInfo then BotEcho("Need Shamans") end
@@ -1476,40 +1558,44 @@ local function RallyItemBuild()
 			end
 		end
 		
-		if tItemDecisions.bSolsBulwark and not tItemDecisions.bDaemonic then
-			tinsert(shoppingLib.tItembuild, "Item_DaemonicBreastplate")
-			tItemDecisions.bDaemonic = true
-			if bDebugInfo then BotEcho("Need Daemonic!") end
-			tItemDecisions.nBigItems = nBigItems + 1
-			return true
-		elseif not tItemDecisions.bPlateMail and not tItemDecisions.bFrostfield then
-			tinsert(shoppingLib.tItembuild, "Item_Platemail")
-			tItemDecisions.bPlateMail = true
-			if bDebugInfo then BotEcho("Need Platemail!!") end
-			return true
-		elseif not tItemDecisions.bFrostfield then
-			tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
-			tItemDecisions.bFrostfield = true
-			if bDebugInfo then BotEcho("Need FrostfieldPlate!") end
-			tItemDecisions.nBigItems = nBigItems +1
-			return true
-		elseif not tItemDecisions.bAbyssal then
-			tItemDecisions.bAbyssal = true
-			local teamBotBrain = core.teamBotBrain
-			local sAbyssal = "Item_LifeSteal5"
-			if teamBotBrain and teamBotBrain.ReserveItem(sAbyssal) then
-				tinsert(shoppingLib.tItembuild, sAbyssal)
-				if bDebugInfo then BotEcho("Need Abyssal") end
+		--Only do this, if we have our PK/Shroud
+		if tItemDecisions.bMovementEnhancer then
+				
+			if tItemDecisions.bSolsBulwark and not tItemDecisions.bDaemonic then
+				tinsert(shoppingLib.tItembuild, "Item_DaemonicBreastplate")
+				tItemDecisions.bDaemonic = true
+				if bDebugInfo then BotEcho("Need Daemonic!") end
 				tItemDecisions.nBigItems = nBigItems + 1
 				return true
-			end ----keep in mind we have to check the other options here --> no elseif
-		end
-		
-		if not tItemDecisions.bBarbed then
-			tinsert(shoppingLib.tItembuild, "Item_Excruciator")
-			tItemDecisions.bBarbed = true
-			if bDebugInfo then BotEcho("Need Barbed!") end
-			return true
+			elseif not tItemDecisions.bPlateMail and not tItemDecisions.bFrostfield then
+				tinsert(shoppingLib.tItembuild, "Item_Platemail")
+				tItemDecisions.bPlateMail = true
+				if bDebugInfo then BotEcho("Need Platemail!!") end
+				return true
+			elseif not tItemDecisions.bFrostfield then
+				tinsert(shoppingLib.tItembuild, "Item_FrostfieldPlate")
+				tItemDecisions.bFrostfield = true
+				if bDebugInfo then BotEcho("Need FrostfieldPlate!") end
+				tItemDecisions.nBigItems = nBigItems +1
+				return true
+			elseif not tItemDecisions.bAbyssal then
+				tItemDecisions.bAbyssal = true
+				local teamBotBrain = core.teamBotBrain
+				local sAbyssal = "Item_LifeSteal5"
+				if teamBotBrain and teamBotBrain.ReserveItem(sAbyssal) then
+					tinsert(shoppingLib.tItembuild, sAbyssal)
+					if bDebugInfo then BotEcho("Need Abyssal") end
+					tItemDecisions.nBigItems = nBigItems + 1
+					return true
+				end ----keep in mind we have to check the other options here --> no elseif
+			end
+			
+			if not tItemDecisions.bBarbed then
+				tinsert(shoppingLib.tItembuild, "Item_Excruciator")
+				tItemDecisions.bBarbed = true
+				if bDebugInfo then BotEcho("Need Barbed!") end
+				return true
+			end
 		end
 	elseif sSurvivalattribute == "hp" then
 		if nGPM > 350 then
@@ -1525,6 +1611,8 @@ local function RallyItemBuild()
 			tItemDecisions.bGlowStone = true
 			if bDebugInfo then BotEcho("Need GlowStone!") end
 			return true
+		elseif not tItemDecisions.bMovementEnhancer then
+			--Do nothing, Before upgrading survivability we need our PK
 		elseif not tItemDecisions.bHeart then
 			tinsert(shoppingLib.tItembuild, "Item_BehemothsHeart")
 			tItemDecisions.bHeart = true
@@ -1575,18 +1663,20 @@ local function RallyItemBuild()
 	if not tItemDecisions.bMovementEnhancer then
 		--go for shroud if good farm, else pk
 		local sItemName = "Item_PortalKey"
+		--[[ No Shroud for now!
 		if nGPM > 350 then
 			--go for shroud
 			sItemName = "Item_Stealth"
 			tItemDecisions.bShroud = true
 		end
+		--]]
 		tinsert(shoppingLib.tItembuild, sItemName)
 		tItemDecisions.bMovementEnhancer = true
 		tItemDecisions.nBigItems = nBigItems +1
 		if bDebugInfo then BotEcho("Need MovementEnhancer! PK: "..tostring(not tItemDecisions.bShroud).."Shroud: "..tostring(tItemDecisions.bShroud)) end
 		return true		
 	end
-	
+		
 	if not tItemDecisions.bGlowStone then
 			tinsert(shoppingLib.tItembuild, "Item_Glowstone")
 			tItemDecisions.bGlowStone = true
@@ -1662,14 +1752,16 @@ end
 shoppingLib.CheckItemBuild = RallyItemBuild	
 
 
----------------------------------------------------------
----------------------------------------------------------
--- Hunting!!
----------------------------------------------------------
----------------------------------------------------------
+--####################################################################
+--####################################################################
+--#								 									##
+--#   HUNTING FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
 
 
---hunting/grouphunting util
+--Check our desire to Gank and returns our action radius
 function object.funcCheckRequirementsToGank()
 	local unitSelf = core.unitSelf
 	local nHPPercent = unitSelf:GetHealthPercent()
@@ -1688,7 +1780,7 @@ function object.funcCheckRequirementsToGank()
 	
 	local nCompellManaCost = abilCompell:GetManaCost()
 	if abilCompell:CanActivate() and nMana >= nCompellManaCost then
-		nGankRange = nGankRange + 600
+		nGankRange = nGankRange + 1000
 		nMana = nMana - nCompellManaCost
 	end
 	
@@ -1701,27 +1793,33 @@ function object.funcCheckRequirementsToGank()
 	
 	local nSlamManaCost = abilSlam:GetManaCost()
 	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
-		nGankRange = nGankRange + 2000
+		nGankRange = nGankRange + 4000
 		nMana = nMana - nSlamManaCost
 	end
 	
 	local nRoarManaCost = abilRoar:GetManaCost()
 	if abilRoar:CanActivate() and nMana >= nRoarManaCost then
-		nGankRange = nGankRange + 400
+		nGankRange = nGankRange + 500
 	end
 	
 	if nHPPercent > 0.9 then
-		nGankRange  = nGankRange + 1000
+		nGankRange  = nGankRange + 2000
 	end
 	
 	return nGankRange
 end
 
+--Check our power level and 
+--returns burst-damage, dps, lockdown and time to travel in a table
 function object.GetGankingPower(unitEnemy, tEnemyInformation)
+	local bDebugPower = true
 	
-	for sID,data in pairs (tEnemyInformation) do
-		BotEcho(sID..": "..tostring(data))
+	if bDebugPower then
+		for sID,data in pairs (tEnemyInformation) do
+			BotEcho(sID..": "..tostring(data))
+		end
 	end
+	
 	local unitSelf = core.unitSelf
 	
 	local vecEnemyPosition = tEnemyInformation.vecCurrentPosition
@@ -1734,7 +1832,7 @@ function object.GetGankingPower(unitEnemy, tEnemyInformation)
 	local nDistance = nDistanceY / sin(atan2(nDistanceY, vecDistance.x))
 	
 	--Basic Arrival Time
-	local nArrivalTime = nDistance / unitSelf:GetMoveSpeed() * 1000
+	local nArrivalTime = max(nDistance-800,0) / unitSelf:GetMoveSpeed() * 1000
 	local nBurst = 0
 	local nDPS = 0
 	local nLockDown = 0
@@ -1755,7 +1853,7 @@ function object.GetGankingPower(unitEnemy, tEnemyInformation)
 		
 	local nSlamManaCost = abilSlam:GetManaCost()
 	if abilSlam:CanActivate() and nMana >= nSlamManaCost then
-		nBurst = nBurst + funcGetCompellDamage(abilSlam:GetLevel())
+		nBurst = nBurst + funcGetSlamDamage(abilSlam:GetLevel())
 		nLockDown = nLockDown > 0 and nLockDown - 750 or 0
 		nMana = nMana - nSlamManaCost
 	end
@@ -1769,7 +1867,7 @@ function object.GetGankingPower(unitEnemy, tEnemyInformation)
 	local nDamage = core.GetFinalAttackDamageAverage(unitSelf)
 	local nAttacksPerSecond = core.GetAttacksPerSecond(unitSelf)
 	local nDPS = nDamage * nAttacksPerSecond
-	
+		
 	local nTargetArmor = tEnemyInformation.nPArmor * (1-funcGetBattleExpPierce(skills.abilBattleExp:GetLevel()))
 	if nTargetArmor > 0 then
 		local nModifier = 100 / (100+nTargetArmor*6)
@@ -1781,19 +1879,27 @@ function object.GetGankingPower(unitEnemy, tEnemyInformation)
 	return {nBurst, nDPS, nLockDown, nArrivalTime}
 end
 
---hunting exec
+--Hunting Utility function
 function object.HuntingUtility(botBrain)
-	local bDebug = false
+	local bDebug = true
 	local teamBotBrain = core.teamBotBrain
 	local funcHuntingUtility = teamBotBrain and teamBotBrain.HuntingUtility
 	
 	local nUtility = funcHuntingUtility and funcHuntingUtility(botBrain) or 0
 	
-	if bDebug then BotEcho("Hunting utility: "..tostring(nUtility)) end
+	if bDebug then 
+		if not funcHuntingUtility then
+			BotEcho("Missing TeamBotBrain-function")
+		end
+		if nUtility > 0 then
+			BotEcho("Hunting utility: "..tostring(nUtility)) 
+		end
+	end
 	
 	return nUtility
 end
  
+--Hunting execute function
 function object.HuntingExe(botBrain)
 	local sStatus = core.teamBotBrain.GetHuntingStatus(botBrain)
 	
@@ -1816,12 +1922,18 @@ behaviorLib.Hunting["Execute"] = object.HuntingExe
 behaviorLib.Hunting["Name"] = "Hunting"
 tinsert(behaviorLib.tBehaviors, behaviorLib.Hunting) 
 
-
+--####################################################################
+--####################################################################
+--#								 									##
+--#   OnThink FUNCTIONSS				       						##
+--#								 									##
+--####################################################################
+--####################################################################
 
 function object:onthinkOverride(tGameVariables)
 	self:onthinkOld(tGameVariables)
 	
-	--toDo Radius check if we hit ult
+	--Abort Ultimate, if we gonna miss
 	local teamBotBrain = core.teamBotBrain
 	if teamBotBrain then
 		local nNow = HoN.GetGameTime()
@@ -1835,7 +1947,6 @@ function object:onthinkOverride(tGameVariables)
 			if not unitHeroTarget:IsAlive() or not nRangeSq or nRangeSq  > nSlamRadius*nSlamRadius or nRangeSq < 900 then
 				object.nSlamTime = core.OrderStop(object, core.unitSelf, true) and 0
 			end
-			core.DrawXPosition(vecExpectedPositon)
 		end
 	end
 	
@@ -1843,6 +1954,50 @@ end
 object.onthinkOld = object.onthink
 object.onthink 	= object.onthinkOverride
 
+--overrride local units (we need more range, if we got a pk)
+core.localCreepRange = 1600
+function object.AssessLocalUnits(botBrain, vecPosition, nRadius)
+	StartProfile('Assess local units')
+	
+	StartProfile('Setup')
+		local unitSelf = core.unitSelf
+		vecPosition = vecPosition or unitSelf:GetPosition()
+		nRadius = nRadius or core.localCreepRange
+		local nMask = core.UNIT_MASK_ALIVE + core.UNIT_MASK_UNIT + core.UNIT_MASK_HERO + core.UNIT_MASK_BUILDING
+	StopProfile()
+	
+	StartProfile('GetUnits')
+		local _, tSortedUnits = HoN.GetUnitsInRadius(vecPosition, nRadius, nMask, true)
+	StopProfile()
+	
+	-- BotEcho('local creep range '..core.localCreepRange)
+	-- BotEcho('units in range '..core.localCreepRange..': '..core.NumberElements(tUnits))
+	-- BotEcho('myTeam '..core.myTeam..'  enemyTeam'..core.enemyTeam)
+	
+	StartProfile('Loop')
+		local teamBotBrain = core.teamBotBrain
+		local tAllyHeroes = tSortedUnits.AllyHeroes
+		local tAllyUnits = tSortedUnits.AllyUnits
+		local tAllies = tSortedUnits.Allies
+		for nUID,unitAlly in pairs(tAllyHeroes) do
+			tAllyHeroes[nUID] = teamBotBrain:CreateMemoryUnit(unitAlly)
+			tAllyUnits[nUID] = tAllyHeroes[nUID]
+			tAllies[nUID] = tAllyHeroes[nUID]
+		end
+		local tEnemyHeroes = tSortedUnits.EnemyHeroes
+		local tEnemyUnits = tSortedUnits.EnemyUnits
+		local tEnemies = tSortedUnits.Enemies
+		for nUID,unitEnemy in pairs(tEnemyHeroes) do
+			tEnemyHeroes[nUID] = teamBotBrain:CreateMemoryUnit(unitEnemy)
+			tEnemyUnits[nUID] = tEnemyHeroes[nUID]
+			tEnemies[nUID] = tEnemyHeroes[nUID]
+		end	
+	StopProfile()
+		
+	StopProfile()
+	return tSortedUnits
+end
+core.AssessLocalUnits = object.AssessLocalUnits
 
 --####################################################################
 --####################################################################
@@ -1853,13 +2008,25 @@ object.onthink 	= object.onthinkOverride
 --####################################################################
 
 core.tKillChatKeys = {
-	"Pain is a real motivator"  }
+	"Pain is a real motivator",
+	"Dodge!",
+	"I don't wanna blame you, but that was kind of stupid.",
+	"THIS IS SPARTA!",
+	"5"}
 
 core.tDeathChatKeys = {
-	"Rally!"	}
+	"It's impossible for a bot to see THAT comin'!",
+	"TEAM ?! What're you doin'?",
+	"fnhuiwsjefcnrusiodfiwsjfs",
+	"Omg, this lag!",
+	"Sorry guys, I was not paying attention."}
 
 core.tRespawnChatKeys = {
-	"Gettin' outrallied." }
+	"1",
+	"2",
+	"3",
+	"4",
+	"5"}
 
 --enable taunt for practice mode (hehe)
 Echo("g_perks 1")
@@ -1867,3 +2034,179 @@ Echo("g_perks 1")
 SetBotDifficulty(3)
 
 BotEcho('finished loading rally_main')
+
+--[[
+function object.SlowUtility (botBrain)
+	local unitSelf = core.unitSelf
+	local nMyExpectedMS = core.GetMovementSpeed(unitSelf)
+	
+	local nCurrentMS = unitSelf:GetMoveSpeed()
+	
+	local nUtility = 100 * (nMyExpectedMS / nCurrentMS -1)
+	
+	return Clamp(nUtility, 0, 100)
+end
+
+object.nCustomMovementSpeed = 305
+object.nCustomMovementModifier = 1
+
+core.bUpdateMovementSpeed = true
+local tBootsList = {
+	Item_PostHaste = 105,
+	Item_EnhancedMarchers = 70,
+	Item_PlatedGreaves = 70,
+	Item_Steamboots = 60,
+	Item_Striders = 50,
+	Item_Marchers = 50
+	}
+
+local tFirebrandList = {
+	Item_Dawnbringer = 0.16,
+	Item_StrengthAgility = 0.14,
+	Item_Searinglight = 0.14,
+	Item_ManaBurn2 = 0.1,
+	Item_Sicarius = 0.1
+	}
+ 
+object.nHeroMovementSpeed = 305
+core.nMaxSpeed = 522 
+function core.GetMovementSpeed(unitSelf, bIgnoreUnitBuffs, bIgnoreItemBuffs)
+	if not unitSelf then
+		unitSelf = core.unitSelf
+	end
+	
+	--Haste or Warbeeast Ultimate? Just return maxSpeed
+	if unitSelf:HasState("State_PowerupMoveSpeed") or unitSelf:HasState("State_WolfMan_Ability4") then
+		return core.nMaxSpeed
+	end
+	
+	local nMovementSpeedModifier = 1
+	local nMovementSpeed = 0
+	
+	
+	--get all interesting items
+	local itemHandler = object.itemHandler
+	
+	if core.bUpdateMovementSpeed then
+		
+		--boots
+		for sItemName, nMoveSpeed in pairs (tBootsList) do
+			if itemHandler:GetItem(sItemName, unitSelf) then
+				nMovementSpeed = nMovementSpeed + nMoveSpeed
+				break
+			end
+		end
+		
+		--Firebrand Items
+		for sItemName, nMoveSpeedModifier in pairs (tFirebrandList) do
+			if itemHandler:GetItem(sItemName, unitSelf) then
+				nMovementSpeedModifier = nMovementSpeedModifier + nMoveSpeedModifier
+				break
+			end
+		end
+		
+		--Stormspirit
+		if itemHandler:GetItem("Item_Intelligence6", unitSelf) then
+			nMovementSpeed = nMovementSpeed + 25
+		end		
+	end
+	
+	--add temporairy bonus
+	if not bIgnoreItemBuffs then 
+		--check elders
+		if unitSelf:HasState("State_ElderParasite") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.2
+		end
+		
+		--check puzzlebox aura
+		if unitSelf:HasState("State_NecroRanged_2") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.09 --lvl3
+		end
+		
+		--check energizer
+		if unitSelf:HasState("State_Energizer_Buff") then
+			nMovementSpeed = nMovementSpeed + 75
+		end
+		
+		--post haste
+		local itemPostHaste = itemHandler:GetItem("Item_PostHaste", unitSelf)
+		if itemPostHaste then
+			if unitSelf:HasState("State_PostHaste") then
+				nMovementSpeed = nMovementSpeed + 200
+			end
+			--get charges / * 11.25
+			nMovementSpeed = nMovementSpeed + 11.25 * itemPostHaste:GetCharges()
+		end
+		
+		--enhanced marchers
+		if unitSelf:HasState("State_EnhancedMarchers") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.12
+		end
+		
+		--sttriders
+		local itemStriders = itemHandler:GetItem("Item_Striders", unitSelf)
+		if itemStriders then
+			--get charges / * 25
+			nMovementSpeed = nMovementSpeed + 25 * itemStriders:GetCharges()
+		end
+		
+		--shroud 
+		if unitSelf:HasState("State_Item3G") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.2
+		end	
+		
+		--genjuro
+		if unitSelf:HasState("State_Sasuke") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.25
+		end	
+	end
+	
+	--------------
+	--hero boni
+	
+	if not bIgnoreUnitBuffs then
+		--hero boni : blitz quicken
+		if unitSelf:HasState("State_Blitz_Ability3") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 2.5 --lvl4
+		end	
+		
+		--electrician ult -- impossible
+		
+		--empath ult -- impossible
+		
+		--mana nymph
+		if unitSelf:HasState("State_Fairy_Ability2") then
+			nMovementSpeed = nMovementSpeed + 100 --lvl4
+		end
+		
+		--martyr aura -- impossible
+		
+		--nomad q
+		if unitSelf:HasState("State_Nomad_Ability1_Allies") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.2 --lvl4
+		end	
+		
+		--bramble aura
+		if unitSelf:HasState("State_Plant_Ability3_Buff") then
+			nMovementSpeed = nMovementSpeed + 100 --lvl4
+		end
+		
+		--revenant invis
+		if unitSelf:HasState("State_Revenant_Ability3") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.1 --lvl4
+		end
+		
+		--valk leap
+		if unitSelf:HasState("State_Valkyrie_Ability3_Buff") then
+			nMovementSpeedModifier = nMovementSpeedModifier + 0.16 --lvl4
+		end	
+	end
+	
+	local nUnitDefaultSpeed = object.nHeroMovementSpeed or 300
+	local nUnitDefaultModifier = object.nHeroMovementModifier or 0
+	local nResult = Clamp((nMovementSpeed + nUnitDefaultSpeed) * (nMovementSpeedModifier+nUnitDefaultModifier), 100, core.nMaxSpeed)
+	
+	--calculate MS
+	return nResult
+end
+--]]

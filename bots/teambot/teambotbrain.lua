@@ -2568,7 +2568,7 @@ function object.SendTroops()
 		elseif tHeroStatus.sStatus == "Move" and tHeroStatus.nGankTime <= nNow then
 			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Hunt") end
 			tHeroStatus.sStatus = "Hunt"
-		elseif tHeroStatus.sStatus == "Hunt" and tHeroStatus.nGankTime <= nNow + 7000 then
+		elseif tHeroStatus.sStatus == "Hunt" and tHeroStatus.nGankTime + 10000 <= nNow then
 			local unitEnemy = tHeroStatus.unitTarget
 			if unitEnemy then 
 				object.tCurrentlyGanked[unitEnemy:GetUniqueID()] = nil

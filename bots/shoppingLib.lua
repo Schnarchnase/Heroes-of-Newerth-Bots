@@ -314,7 +314,7 @@ function itemHandler:AddItem(itemCurrent, unitSelected)
 	local bDebugAddItem = false
 	
 	--no item or not our item: nothing to add
-	if not itemCurrent or itemCurrent:GetOwnerPlayerID() ~= object:GetPlayerID() then 
+	if not itemCurrent or itemCurrent:IsRecipe() or itemCurrent:GetOwnerPlayerID() ~= object:GetPlayerID() then 
 		return 
 	end
 	
@@ -416,6 +416,8 @@ function itemHandler:UpdateDatabase(bClear)
 			end
 		end	
 	end
+	
+	core.bUpdateMovementSpeed = true
 end
 
 -----------------
@@ -986,14 +988,20 @@ function shoppingLib.CheckItemsInventory (tComponents)
 	--info about ourself
 	local unitSelf = core.unitSelf 
 	local tInventory = unitSelf:GetInventory(true)
+	local nMyID =  object:GetPlayerID()
 	
 	--courier items 
 	local unitCourier = shoppingLib.GetCourier()
 	if unitCourier then
 		local tCourierInventory = unitCourier:GetInventory(false)
 		for _, item in pairs (tCourierInventory) do
-			if item and item:GetOwnerPlayerID() == object:GetPlayerID() then
-				tinsert(tInventory, item)
+			if item then
+				local nItemPlayerID = item:GetOwnerPlayerID()
+				if not nItemPlayerID then
+					BotEcho("Checking components in courier: Item Owner ID is nil, why")
+				elseif nItemPlayerID  == nMyID then
+					tinsert(tInventory, item)
+				end
 			end
 		end
 	end
@@ -1106,6 +1114,11 @@ local function GetNextItem()
 		
 		local itemDef = HoN.GetItemDefinition(sName)
 		
+		if sName == "Item_Nuke" or sName == "Item_SpellShards" then
+			bDebugNextItem = true
+			shoppingLib.printAll()
+		end
+		
 		if bDebugNextItem then BotEcho("Name "..sName.." Anzahl "..nAmount.." Level"..nLevel) end
 				
 		
@@ -1142,9 +1155,9 @@ local function GetNextItem()
 			for _, itemCompDef in ipairs (tReaminingItems) do
 				if itemCompDef then
 					local sDefName = itemCompDef:GetName()
-					if bDebugNextItem then BotEcho("Component "..sDefName) end
 					--only insert component if it not an autocombined element
-					if  sDefName ~= sName or not itemCompDef:GetAutoAssemble() then
+					if  not itemCompDef:GetAutoAssemble() then
+						if bDebugNextItem then BotEcho("Component "..sDefName) end
 						tinsert(shoppingLib.tShoppingList, itemCompDef)
 					end
 				end
@@ -1468,23 +1481,45 @@ function shoppingLib.SellItems (nNumber, unitSelected)
 	
 	--list of cost and slot pairs
 	local tValueList = {}
-			
+	
+	--hero unit preference
+	local bHeroUnit = unitSelf:GetOwnerPlayerID() == unitSelected:GetOwnerPlayerID()
+	local nPlayerID = object:GetPlayerID()
+	if bDebugSelling then
+		BotEcho("hero owner ID: "..tostring(unitSelf:GetOwnerPlayerID()).." Unit selling ID "..tostring(unitSelected:GetOwnerPlayerID()).." Same unit? "..tostring(bHeroUnit))
+		if not nPlayerID then
+			BotEcho("nPlayerID is nil, why?")
+		end
+	end	
 	--index items
 	for nSlot=1, 12, 1 do
 		local tCurrentInventory = nSlot < 7 and tInventory or tStash
 		local itemCurrent = tCurrentInventory[nSlot]
-		if itemCurrent and itemCurrent:GetOwnerPlayerID() == object:GetPlayerID() and not itemCurrent:IsRecipe() then
-			local nItemTotalCost = itemCurrent:GetTotalCost()
+		if itemCurrent then
 			local sItemName = itemCurrent:GetName()
-		
-			--give the important items a bonus in gold (Boots, Mystic Vestments etc.)
-			if unitSelf == unitSelected and nSlot == shoppingLib.GetItemSlotNumber(sItemName) then
-				nItemTotalCost = nItemTotalCost + shoppingLib.nSellBonusValue
+			local nOwnerID = itemCurrent:GetOwnerPlayerID()
+			if bDebugSelling then
+				BotEcho("Item: "..tostring(sItemName).." ItemOwnerID "..tostring(nOwnerID))
 			end
-	
-			--insert item in the list
-			tinsert(tValueList, {nItemTotalCost, nSlot})
-			if bDebugSelling then BotEcho("Insert Slotnumber: "..tostring(nSlot).." Item "..sItemName.." Price "..tostring(nItemTotalCost)) end
+			if not nOwnerID then
+				BotEcho("Owner ID is nil, why?")
+			elseif nOwnerID == nPlayerID and not itemCurrent:IsRecipe() then
+				local nItemTotalCost = itemCurrent:GetTotalCost()
+				
+				if itemCurrent:GetNoSell() then
+					--item cannot be sold
+					if bDebugSelling then BotEcho("Item can not be sold: Slotnumber: "..tostring(nSlot).." Item "..sItemName) end
+				else
+					--give the important items a bonus in gold (Boots, Mystic Vestments etc.)
+					if bHeroUnit and nSlot == shoppingLib.GetItemSlotNumber(sItemName) then
+						nItemTotalCost = nItemTotalCost + shoppingLib.nSellBonusValue
+					end
+			
+					--insert item in the list
+					tinsert(tValueList, {nItemTotalCost, nSlot})
+					if bDebugSelling then BotEcho("Insert Slotnumber: "..tostring(nSlot).." Item "..sItemName.." Price "..tostring(nItemTotalCost)) end
+				end
+			end
 		end
 	end
 	
@@ -1700,6 +1735,8 @@ function shoppingLib.ShopExecute(botBrain)
 				local nGoldAmtAfter = botBrain:GetGold()
 				local bGoldReduced = (nGoldAmtAfter < nGoldAmtBefore)
 				
+				if bDebugShopExecute then BotEcho("Spend Gold: "..tostring(nGoldAmtBefore-nGoldAmtAfter)) end
+				
 				--check purchase success
 				if bGoldReduced then 
 					--gold was reduced, so we purchased something
@@ -1888,7 +1925,7 @@ end
 
 --fill stash with the items from courier
 function shoppingLib.FillStash(unitCourier)
-	local bDebugFillStash = false
+	local bDebugFillStash = true
 	if not unitCourier then 
 		return false 
 	end
@@ -1899,25 +1936,35 @@ function shoppingLib.FillStash(unitCourier)
 		
 	if bDebugFillStash then BotEcho("Fill Stash") end
 	
+	local nPlayerID = object:GetPlayerID()
+	if not nPlayerID then
+		BotEcho("FillStash: PlayerID is nil, why?")
+	end
+	
 	local nFirstStashSlot = 7
 	local nNumberToSell = 6
 	for nCourierSlot = 6, 1, -1 do
 		local itemCurrent = tInventory[nCourierSlot]
-		if itemCurrent and itemCurrent:GetOwnerPlayerID() == object:GetPlayerID() then
-		
-			--This is an item we have to put into our stash!
-			if nFirstStashSlot <= 12 then
-				for nStashSlot = nFirstStashSlot, 12, 1 do
-					local itemStash = tStash[nStashSlot]
-					if not itemStash then
-						if bDebugFillStash then BotEcho("Swap "..tostring(nCourierSlot).." with "..tostring(nStashSlot)) end
-						unitCourier:SwapItems(nCourierSlot, nStashSlot)
-						nFirstStashSlot = nStashSlot + 1
-						nNumberToSell = nNumberToSell - 1
-						break
+		if itemCurrent then
+			local nOwnerPlayerID = itemCurrent:GetOwnerPlayerID()
+			if not nOwnerPlayerID then
+				BotEcho("Fill Stash: ItemOwnerID is nil, why?")
+			elseif nOwnerPlayerID  == nPlayerID then
+				
+				--This is an item we have to put into our stash!
+				if nFirstStashSlot <= 12 then
+					for nStashSlot = nFirstStashSlot, 12, 1 do
+						local itemStash = tStash[nStashSlot]
+						if not itemStash then
+							if bDebugFillStash then BotEcho("Swap "..tostring(nCourierSlot).." with "..tostring(nStashSlot)) end
+							unitCourier:SwapItems(nCourierSlot, nStashSlot)
+							nFirstStashSlot = nStashSlot + 1
+							nNumberToSell = nNumberToSell - 1
+							break
+						end
 					end
-				end
-			end	
+				end	
+			end
 		else
 			--no item or non of our concern
 			nNumberToSell = nNumberToSell - 1 
