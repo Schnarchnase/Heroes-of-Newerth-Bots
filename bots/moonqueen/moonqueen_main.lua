@@ -179,14 +179,12 @@ object.onthink 	= object.onthinkOverride
 ---------------------------
 -- Togle aura and bounce --
 ---------------------------
-local function PushExecuteOverride(botBrain)
+function behaviorLib.customPushExecute(botBrain)
 	object.toggleBounce(botBrain, true)
 	object.toggleAura(botBrain, true)
 	SteamBootsLib.setAttributeBonus("agi")
-	object.PushExecuteOld(botBrain)
+	return false
 end
-object.PushExecuteOld = behaviorLib.PushBehavior["Execute"]
-behaviorLib.PushBehavior["Execute"] = PushExecuteOverride
 
 function behaviorLib.PositionSelfExecuteOverride(botBrain)
 	object.toggleBounce(botBrain, false)
@@ -220,9 +218,10 @@ function object:oncombateventOverride(EventData)
 			nAddBonus = nAddBonus + object.nSymbolofRageUseBonus
 		end
 	elseif EventData.Type == "Respawn" then
-		--To keep track status of 2nd skill
-		skills.abilBounce.bTargetAll = true
-		object.toggleBounce(self, false)
+		if skills.abilBounce ~= nil then --To keep track status of 2nd skill
+			skills.abilBounce.bTargetAll = true
+			object.toggleBounce(self, false)
+		end
 	end
 	
 	if nAddBonus > 0 then
@@ -306,7 +305,7 @@ local function HarassHeroExecuteOverride(botBrain)
 
 	local bActionTaken = false
 
-	local bTargetMagicImmune = object.isMagicImmune(unitTarget)
+	local bTargetMagicImmune = unitTarget:isMagicImmune()
 
 	----------------------------------------------------------------------------
 
@@ -359,7 +358,7 @@ function behaviorLib.ultimateUtility(botBrain)
 	local nEnemyCreeps = 0
 
 	for _, unitHero in pairs(tLocalUnits["EnemyHeroes"]) do
-		if Vector3.Distance2DSq(vecMyPosition, unitHero:GetPosition()) < 600*600 and not object.isMagicImmune(unitHero) then
+		if Vector3.Distance2DSq(vecMyPosition, unitHero:GetPosition()) < 600*600 and not unitHero:isMagicImmune() then
 			nEnemyHeroes = nEnemyHeroes + 1
 		end
 	end
@@ -532,19 +531,6 @@ function object.getBounceState()
 		return false
 	end
 	return skills.abilBounce.bTargetAll 
-end
-
---------------------
--- Magic immunity --
---------------------
-function object.isMagicImmune(unit)
-	local tStates = { "State_Item3E", "State_Predator_Ability2", "State_Jereziah_Ability2", "State_Rampage_Ability1_Self", "State_Rhapsody_Ability4_Buff", "State_Hiro_Ability1" }
-	for _, sState in ipairs(tStates) do
-		if unit:HasState(sState) then
-			return true
-		end
-	end
-	return false
 end
 
 -----------------------------

@@ -67,7 +67,7 @@ core.nEasyLowHumanHealthKillChance = 0.166666
 core.bEasyTurnOffHealAtWell = false
 core.nEasyTurnOffHealAtWellDuration = 5000
 core.nEasyTurnOffHealAtWellHumanLastSeenTime = 0
-core.bBetterErrors = true
+core.bBetterErrors = false
 
 --Called every frame the engine gives us during the pick phase
 function object:onpickframe()
@@ -416,7 +416,11 @@ function core.BotBrainCoreInitialize(tGameVariables)
 	
 	core.unitSelf = object:GetHeroUnit()
 	core.teamBotBrain = HoN.GetTeamBotBrain()
-		
+	
+	if (tGameVariables.bIsRetail == false) then
+		core.bBetterErrors = true
+	end
+	
 	if core.teamBotBrain == nil then
 		BotEcho('teamBotBrain is nil!')		
 	end
@@ -1345,6 +1349,11 @@ function core.OrderMoveToPosClamp(botBrain, unit, position, bInterruptAttacks, b
 	if object.bRunCommands == false or object.bMoveCommands == false then
 		return false
 	end
+	
+	if unit == nil or position == nil then
+		BotEcho("invalid OrderMoveToPosClamp call!")
+		return false
+	end
 
 	local curTimeMS = HoN.GetGameTime()
 	if curTimeMS < core.nextOrderTime then
@@ -1726,7 +1735,7 @@ function core.OrderBlinkItemToEscape(botBrain, unit, item, bInterruptAttacks, bQ
 	local itemParam = (item ~= nil and item.object) or item
 	local vecTarget = behaviorLib.GetSafeBlinkPosition(core.allyWell:GetPosition(), item:GetRange())
 	if (itemParam and vecTarget) then
-		return core.OrderItemPosition(botBrain, unit, item, vecTarget, bInterruptAttacks, bQueueCommand)
+		return core.OrderItemPosition(botBrain, unit, itemParam, vecTarget, bInterruptAttacks, bQueueCommand)
 	end
 	return false
 end
@@ -1855,8 +1864,8 @@ function core.OrderBlinkAbilityToEscape(botBrain, ability, bInterruptAttacks, bQ
 	end
 	local abilityParam = (ability ~= nil and ability.object) or ability
 	local vecTarget = behaviorLib.GetSafeBlinkPosition(core.allyWell:GetPosition(), ability:GetRange())
-	if (ability and vecTarget) then
-		return core.OrderAbilityPosition(botBrain, ability, vecTarget, bInterruptAttacks, bQueueCommand)
+	if (abilityParam and vecTarget) then
+		return core.OrderAbilityPosition(botBrain, abilityParam, vecTarget, bInterruptAttacks, bQueueCommand)
 	end
 	return false
 end
