@@ -1189,7 +1189,7 @@ function core.GetItem(val, bIncludeStash)
 	if core.tFoundItems[val] then -- We have checked the item before. Validate it.
 		core.ValidateItem(core.tFoundItems[val])
 		
-		if core.tFoundItems[val] and core.tFoundItems[val]:IsValid() and core.unitSelf:CanAccess(core.tFoundItems[val].object)  then -- still valid, return it
+		if core.tFoundItems[val] and core.tFoundItems[val]:IsValid() then -- still valid, return it
 
 			--check for access
 			if core.unitSelf:CanAccess(core.tFoundItems[val].object) or bIncludeStash then 
