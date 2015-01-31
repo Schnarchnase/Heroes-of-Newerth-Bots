@@ -131,7 +131,7 @@ function object:onthink(tGameVariables)
 		self:TeamBotBrainInitialize()
 	end
 	if metadata.bInitialized ~= true then
-		metadata.Initialize()
+		metadata.Initialize(tGameVariables.sMapName)
 	end	
 	
 	if core.tGameVariables == nil then
@@ -140,7 +140,7 @@ function object:onthink(tGameVariables)
 		else
 			core.tGameVariables = tGameVariables
 			getMapLanes()
-			core.bIsTutorial = core.tGameVariables.sMapName == 'tutorial'
+			core.bIsTutorial = core.tGameVariables.sMapName == 'tutorial' or core.tGameVariables.sMapName == 'tutorial_laning'
 			core.nDifficulty = core.tGameVariables.nDifficulty or core.nEASY_DIFFICULTY
 			
 			--[Tutorial] Hellbourne heroes don't group up to push and Legion waits longer to push
@@ -248,23 +248,7 @@ function object:onthink(tGameVariables)
 		object.nRuneNextCheck = object.nRuneNextCheck + object.nRuneCheckInterval
 		object.CheckRunes()
 	end
-	 
-	object.funcUpdateEnemyInfo()
-	
-	local nNow = HoN.GetGameTime()
-	if object.nNextGankPlanTime <= nNow then
-		object.funcCoordinateGanks()
-		object.nNextGankPlanTime = object.nNextGankPlanTime + 5000
-	end
-	if object.nNextSendOutTime <= nNow then
-		object.SendTroops()
-		object.nNextSendOutTime = object.nNextSendOutTime + 250
-	end
-	
-	
 end
-object.nNextGankPlanTime = 0 
-object.nNextSendOutTime = 0
 
 function object.CheckRunes()
 	for _,rune in pairs(object.runes) do
@@ -286,7 +270,7 @@ function object.CheckRunes()
 				rune.unit = nil
 				rune.bPicked = true
 			end
-		end	
+		end
 	end
 end
 
@@ -299,17 +283,17 @@ function object.GetNearestRune(pos, bCertain, bPrioritizeBetter)
 	local nearestRune = nil
 	local shortestDistanceSQ = 99999999
 	for _,rune in pairs(object.runes) do
-		if not bCertain or (HoN.CanSeePosition(rune.vecLocation) and rune.unit ~= nil)  then
+			if not bCertain or (HoN.CanSeePosition(rune.vecLocation) and rune.unit ~= nil)  then
 			local distanceSQ = Vector3.Distance2DSq(rune.vecLocation, pos)
 			if bPrioritizeBetter and rune.unit and rune.unit ~= "Powerup_Refresh" and HoN.CanSeePosition(rune.vecLocation) then
-				distanceSQ = distanceSQ / 2
-			end
-			if not rune.picked and distanceSQ < shortestDistanceSQ then
-				nearestRune = rune
-				shortestDistanceSQ = distanceSQ
+					distanceSQ = distanceSQ / 2
+				end
+				if not rune.picked and distanceSQ < shortestDistanceSQ then
+					nearestRune = rune
+					shortestDistanceSQ = distanceSQ
+				end
 			end
 		end
-	end
 	return nearestRune
 end
 
@@ -365,6 +349,10 @@ end
 
 ---- Memory units ----
 object.tMemoryUnits = {}
+
+function object:GetMemoryUnit(unit)
+	return self.tMemoryUnits[unit:GetUniqueID()]
+end
 
 object.nMemoryUnitHealthIntervalMS = 3000
 function object:CreateMemoryUnit(unit)	
@@ -2143,49 +2131,39 @@ function object:GetDefenseTarget(unitAsking)
 	end
 	return nil
 end
-
 --table to save shopping information, so we can ReloadBots without any problems
 --save courier-use status
 object.tShoppingInfo = {}
-
 object.tItemReservations = {
-			--AbyssalSkull
-			Item_LifeSteal5 = false,
-			--Nomes Wisdom
-			Item_NomesWisdom = false,
-			--Sols Bulwark
-			Item_SolsBulwark = false,
-			--Daemonic Breastplate
-			Item_DaemonicBreastplate = false,
-			--Barrier Idol
-			Item_BarrierIdol = false,
-			--Astrolabe
-			Item_Astrolabe = false,
-			--Mock of Brilliance
-			Item_Damage10 = false
-	}
-	
+	--AbyssalSkull
+	Item_LifeSteal5 = false,
+	--Nomes Wisdom
+	Item_NomesWisdom = false,
+	--Sols Bulwark
+	Item_SolsBulwark = false,
+	--Daemonic Breastplate
+	Item_DaemonicBreastplate = false,
+	--Barrier Idol
+	Item_BarrierIdol = false,
+	--Astrolabe
+	Item_Astrolabe = false,
+	--Mock of Brilliance
+		Item_Damage10 = false
+}
+
 function object.ReserveItem(itemName)
-	
 	local debugTeamBotBrain = false
-	
 	if not itemName then return false end
-	
 	--check if reserved
 	local tReservationTable = object.tItemReservations
-	
 	local bReserved = tReservationTable[itemName]
-	
 	if debugTeamBotBrain then BotEcho(itemName.." was found in reservation table: "..tostring(bReserved)) end
-
 	--if item is not reserved or not tracked, you can buy it 
 	if  bReserved ~= false then
 		return not bReserved
 	end
-
 	--item is not reserved... need further checks
 	local bFoundItem = false
-	
 	--check if an instance of the item is in the inventory of not supported heroes (without this lib or human players)
 	local tAllyHeroes= object.tAllyHeroes
 	for index, hero in pairs(tAllyHeroes) do
@@ -2200,10 +2178,8 @@ function object.ReserveItem(itemName)
 			bFoundItem = false
 		end
 	end
-
 	--Reserve item 
 	tReservationTable[itemName] = true
-	
 	--if item was not found, we can buy it
 	return not bFoundItem
 end
@@ -2231,401 +2207,3 @@ end
 --]]
 
 BotEcho('Finished loading teambotbrain')
-
-object.tEnemyInformationTable = {}
-object.nValidTime = 10*1000
---Hunting Stuff
-function object.funcUpdateEnemyInfo()
-	local bDebugEchoes = false
-	
-	--UpdateHeroinfo
-	if bDebugEchoes then BotEcho("Updating data for all enemy heroes") end
-	
-	local nNow = HoN.GetGameTime()
-	local tEnemyInformationTable = object.tEnemyInformationTable
-	local tEnemyHeroes = object.tEnemyHeroes 
-	
-	for _, unitEnemy in pairs(tEnemyHeroes) do
-		if bDebugEchoes then BotEcho("..Updating bot: "..tostring(unitEnemy:GetTypeName())) end
-		
-		local nID = unitEnemy:GetUniqueID()
-		local tEnemyInformation = tEnemyInformationTable[nID]
-		
-		if not tEnemyInformation then
-			tEnemyInformationTable[nID] = {}
-			tEnemyInformation = tEnemyInformationTable[nID]
-			BotEcho("....Creating new information table!")
-		end
-		
-		if object:CanSeeUnit(unitEnemy) then
-			tEnemyInformation.unit = unitEnemy
-			
-			tEnemyInformation.nCurrentHealth = unitEnemy:GetHealth()
-			tEnemyInformation.nMaxHealth = unitEnemy:GetMaxHealth()
-			
-			tEnemyInformation.nPArmor = unitEnemy:GetArmor()
-			tEnemyInformation.nMArmor = unitEnemy:GetMagicArmor()
-			tEnemyInformation.nLevel = unitEnemy:GetLevel()
-			tEnemyInformation.nMoveSpeed = unitEnemy:GetMoveSpeed()
-			
-			local vecOldPosition = tEnemyInformation.vecCurrentPosition
-			tEnemyInformation.vecCurrentPosition = unitEnemy:GetPosition()
-			
-			if tEnemyInformation.bIsValid then
-				local nTimeSpan = (nNow - tEnemyInformation.nTimeStamp) / 50
-				tEnemyInformation.vecRelativeMovement = (tEnemyInformation.vecCurrentPosition - vecOldPosition) / nTimeSpan
-				if bDebugEchoes then 
-					BotEcho("....Updating Data! Old position : "..tostring(vecOldPosition).." New position "..tostring(tEnemyInformation.vecCurrentPosition))
-					BotEcho("....New relative Movement "..tostring(tEnemyInformation.vecRelativeMovement).." TimeSpan: "..tostring(nTimeSpan))
-				end
-			else
-				tEnemyInformation.bIsValid = true	
-				tEnemyInformation.vecRelativeMovement = nil
-				if bDebugEchoes then BotEcho("....New Data avaible! New Position "..tostring(tEnemyInformation.vecCurrentPosition)) end				
-			end
-			
-			tEnemyInformation.nTimeStamp =  nNow
-			
-		elseif tEnemyInformation.bIsValid and tEnemyInformation.nTimeStamp + object.nValidTime < nNow then
-			
-			tEnemyInformation.bIsValid = false
-			
-			if bDebugEchoes then BotEcho("....Too old data") end
-		end
-	end
-end
-
-function object.funcGetUnitPosition (unit, nTime, bIgnoreValidation)
-	local bDebugEchoes = false
-	
-	if not unit then return end
-	
-	local nID = unit:GetUniqueID()
-	local tEnemyInformation = object.tEnemyInformationTable[nID]
-	
-	if bDebugEchoes then BotEcho("Get position for unit "..tostring(unit:GetTypeName()))	end
-	
-	if tEnemyInformation and (tEnemyInformation.bIsValid or bIgnoreValidation)then
-	
-		local vecPosition = tEnemyInformation.vecCurrentPosition
-		local nTimeStamp = tEnemyInformation.nTimeStamp
-		
-		if nTime and nTime ~= nTimeStamp then
-			local vecRelativeMovement = tEnemyInformation.vecRelativeMovement
-			if not vecRelativeMovement then
-				if bDebugEchoes then BotEcho("Relative movement not detectable") end
-				return				
-			end
-			
-			local nTimeFactor = (nTime - nTimeStamp) / 50
-				
-			vecPosition = vecPosition + tEnemyInformation.vecRelativeMovement * nTimeFactor
-			if bDebugEchoes then BotEcho("Current position: "..tostring(tEnemyInformation.vecCurrentPosition).." Expected position: "..tostring(vecPosition).." at timestamp: "..tostring(nTime))	end
-		else
-			if bDebugEchoes then BotEcho("Position"..tostring(tEnemyInformation.vecCurrentPosition).." Timestamp: "..tostring(tEnemyInformation.nTimestamp))	end
-		end
-		
-		return vecPosition
-	end
-end
-
-object.tHunterInformation = {}
-function object.GetHuntingStatus(botBrain)
-	
-	if not botBrain then return end
-	
-	local unitHero = botBrain:GetHeroUnit()
-	local nID = unitHero:GetUniqueID()
-	
-	local tHunterInformation = object.tHunterInformation
-	local tHeroStatus = tHunterInformation[nID]
-	
-	if not tHeroStatus then
-		tHunterInformation[nID] = {}
-		tHeroStatus = tHunterInformation[nID]
-		tHeroStatus.sStatus = "Off"
-		tHeroStatus.unitHero = unitHero
-		tHeroStatus.botBrain = botBrain
-	end
-	
-	return tHeroStatus.sStatus
-end
-
-function object.SetHuntingStatus(botBrain, sStatus, nDistanceSq)
-		
-	if not botBrain or not sStatus then 
-		return false 
-	end
-	
-	local unitHero = botBrain:GetHeroUnit()
-	local nID = unitHero:GetUniqueID()
-	
-	local tHunterInformation = object.tHunterInformation
-	local tHeroStatus = tHunterInformation[nID]
-	if not tHeroStatus then
-		object.GetHuntingStatus(botBrain)
-		tHeroStatus = tHunterInformation[nID]
-		tHeroStatus.unitHero = unitHero
-	end
-	tHeroStatus.sStatus = sStatus
-	
-	tHeroStatus.nDistanceSq = nDistanceSq or tHeroStatus.nDistanceSq
-
-	return true
-end
-
-function object.funcGetHuntingTarget(botBrain)
-	local unitHero = botBrain:GetHeroUnit()
-	local nID = unitHero:GetUniqueID()
-	
-	local tHunterInformation = object.tHunterInformation
-	tHeroStatus = tHunterInformation[nID]
-	
-	local unitTarget = tHeroStatus.unitTarget
-	local vecUnitTarget = object.funcGetUnitPosition(unitTarget, nil, true)
-	
-	return unitTarget, vecUnitTarget
-end
-
-
-function object.HuntingUtility(botBrain)
-	
-	if not botBrain or not botBrain.funcCheckRequirementsToGank then 
-		return 0 
-	end
-	
-	
-	--check Requirements
-	local nDistance = botBrain.funcCheckRequirementsToGank()
-	if not nDistance then
-		object.SetHuntingStatus(botBrain, "Off")
-		return 0
-	end
-	
-	--check status for this bot
-	local sStatus = object.GetHuntingStatus(botBrain)
-	
-	if  sStatus == "Off" then
-		object.SetHuntingStatus(botBrain, "Idle", nDistance*nDistance)
-		return 0
-	elseif sStatus == "Idle" or sStatus == "Wait" then
-		return 0
-	elseif sStatus == "Move" then
-		botBrain.unitHuntingTarget,	botBrain.vecHuntingArea = object.funcGetHuntingTarget(botBrain)
-		return 40
-	else --sStatus =="Hunt"
-		botBrain.unitHuntingTarget,	botBrain.vecHuntingArea = object.funcGetHuntingTarget(botBrain)
-		return 70
-	end	
-end
-
-object.tCurrentlyGanked = {}
-object.nGankLevelBonus = 100
-object.nHpMissingBonus = 500
-object.nMaxdistanceSq = 2000*2000
-object.nMaxTimeFuture = 30*1000
-object.nRandomGuyRangeSq = 800*800
-function object.funcCoordinateGanks()
-	local bDebug = false
-	
-	local tGankingBotsAvailable = {}
-	
-	--check avaible bots
-	local tHunterInformation = object.tHunterInformation
-	
-	local tAllies = object.tAllyHeroes
-	for _, unitAlly in pairs (tAllies) do
-		--check hunterinformation, if possible
-		local tHeroStatus = tHunterInformation[unitAlly:GetUniqueID()]
-		if not tHeroStatus or (tHeroStatus and tHeroStatus.sStatus == "Idle") then
-			if bDebug then BotEcho("Bot available "..unitAlly:GetTypeName()) end
-			tinsert(tGankingBotsAvailable, tHeroStatus or unitAlly)
-		end
-	end
-	
-	local nNumberOfGankingBots = #tGankingBotsAvailable
-	if bDebug then BotEcho("Number of bots: "..nNumberOfGankingBots) end
-	
-	if nNumberOfGankingBots < 1 then return end 
-
---------------------------------------------	
-	
-	--Sort enemy heroes after importance
-	local tGankTargets = {}
-	
-	local tEnemyHeroes = object.tEnemyHeroes 
-		
-	for _, unitEnemy in pairs(tEnemyHeroes) do
-		
-		local nID = unitEnemy:GetUniqueID()
-		if not object.tCurrentlyGanked[nID] and unitEnemy:IsAlive() then
-			local tEnemyInformation = object.tEnemyInformationTable[nID]
-			if bDebug then BotEcho("Enemy alive"..unitEnemy:GetTypeName()) end
-			if  tEnemyInformation and tEnemyInformation.bIsValid then
-				
-				local nEnemyValue = tEnemyInformation.nLevel * object.nGankLevelBonus
-				
-				local nHPPercent = 100 * (tEnemyInformation.nCurrentHealth) / (tEnemyInformation.nMaxHealth)
-				
-				nEnemyValue = nEnemyValue + (100 - nHPPercent) * object.nHpMissingBonus
-				
-				for _, unitAnotherEnemy in pairs(tEnemyHeroes) do
-					local nAnotherUnitID = unitAnotherEnemy:GetUniqueID()
-					if nID ~= nAnotherUnitID and unitAnotherEnemy:IsAlive() then
-						local tAnotherEnemyInformation = object.tEnemyInformationTable[nAnotherUnitID]
-						if tAnotherEnemyInformation and tEnemyInformation.bIsValid and tAnotherEnemyInformation.vecCurrentPosition then
-							local nTargetDistanceSq = Vector3.Distance2DSq(tEnemyInformation.vecCurrentPosition, tAnotherEnemyInformation.vecCurrentPosition)
-							if nTargetDistanceSq < object.nMaxdistanceSq then
-								nEnemyValue = nEnemyValue * 0.8
-							end
-						end
-					end
-				end		
-				
-				tinsert(tGankTargets, {nEnemyValue, nID, unitEnemy})
-			end
-		end
-	end
-	
-	if bDebug then BotEcho("Number of gankable targets"..tostring(#tGankTargets)) end
-	
-	if #tGankTargets <1 then return end
-		
-	local function bigger(a, b) 
-		return a[1] > b[1] 
-	end
-	--sort our table (most important first)
-	table.sort(tGankTargets, bigger)
-
-------------------------------------------
-	
-	local nNow = HoN.GetGameTime()
-	for _, tEnemyInfo in ipairs(tGankTargets) do
-		--{nEnemyValue, nID, unitEnemy}
-		local nEnemyID = tEnemyInfo[2]
-		local unitEnemy = tEnemyInfo[3]
-		local tEnemyInformation = object.tEnemyInformationTable[nEnemyID]
-		
-		local vecEnemyPosition = tEnemyInformation.vecCurrentPosition
-		
-		local tDistance = {}
-		
-		for _, tGankingBot in ipairs(tGankingBotsAvailable) do
-			local unitHero = tGankingBot.unitHero
-			local nDistanceSq = tGankingBot.nDistanceSq
-			if not unitHero then
-				--this is a random guy
-				unitHero = tGankingBot
-				nDistanceSq = object.nRandomGuyRangeSq
-			end
-			local nDistanceToEnemy = Vector3.Distance2DSq(vecEnemyPosition, unitHero:GetPosition())
-			if nDistanceToEnemy < nDistanceSq then
-				tinsert(tDistance, {nDistanceToEnemy, tGankingBot.botBrain, tGankingBot})				
-			end
-		end
-		
-		local function smaller(a, b) 
-			return a[1] < b[1] 
-		end
-		--sort our table (nearest botbrain first)
-		table.sort(tDistance, smaller)
-		
-		local nHealth = tEnemyInformation.nCurrentHealth
-		local nBurstSum = 0
-		local nDPSSum = 0
-		local nLockdownSum = 0
-		local nNumberOfBots = 0
-		---Get Time to strike
-		local nMaxTime = 0
-		--check ganking power
-		for _, tBrain in ipairs(tDistance) do
-			local botBrain = tBrain[2]
-			local nBurst = nil
-			local nDPS = nil
-			local nLockdown = nil
-			local nArrivalTime = nil
-			if botBrain then
-				local tData = botBrain.GetGankingPower(unitEnemy, tEnemyInformation)
-				nBurst = tData[1]
-				nDPS = tData[2]
-				nLockdown = tData[3]
-				nArrivalTime = tData[4]
-				BotEcho("nBurst "..tostring(nBurst).." nDPS "..tostring(nDPS).." nLockdown "..tostring(nLockdown).." nArrivalTime "..tostring(nArrivalTime))
-			else
-				--this is the random guy ! just assume some values
-				local unitRandomGuy = tBrain[3]
-				nBurst = unitRandomGuy:GetLevel()*25+100
-				nDPS = core.GetFinalAttackDamageAverage(unitRandomGuy) *  core.GetAttacksPerSecond(unitRandomGuy)
-				nLockdown = 0
-				nArrivalTime = 0
-			end
-			if nArrivalTime > nMaxTime then
-				nMaxTime = nArrivalTime
-			end
-			
-			if botBrain then
-				tBrain[3].nMoveTime = nArrivalTime
-			end
-			nNumberOfBots = nNumberOfBots + 1
-			nBurstSum = nBurstSum + nBurst
-            nDPSSum = nDPSSum + nDPS
-            nLockdownSum = nLockdownSum	+ nLockdown	
-			if (nBurstSum + nDPSSum *nLockdownSum) > nHealth then
-				break
-			end
-		end
-		
-		--can kill?
-		--BotEcho("nBurstSum "..tostring(nBurstSum).." nDPSSum "..tostring(nDPSSum).." nLockdownSum "..tostring(nLockdownSum).." Health "..tostring(nHealth).." < "..tostring(nBurstSum + nDPSSum *nLockdownSum))
-		if (nBurstSum + nDPSSum *nLockdownSum/1000) > nHealth then
-			local nGankTime = nNow + nMaxTime
-			for _, tBrain in ipairs(tDistance) do
-				local tHeroStatus = tBrain[3]
-				
-				if tHeroStatus and tHeroStatus.nMoveTime then 
-					tHeroStatus.nMoveTime = nGankTime - tHeroStatus.nMoveTime 
-					tHeroStatus.nGankTime = nGankTime
-					tHeroStatus.sStatus = "Wait"
-					BotEcho("GankTime is "..tostring(nGankTime))
-					tHeroStatus.unitTarget = unitEnemy
-				end
-				nNumberOfBots = nNumberOfBots - 1
-				if nNumberOfBots <= 0 then
-					break
-				end
-			end
-			object.tCurrentlyGanked[nEnemyID] = unitEnemy			
-			break
-		end
-	end
-
---------------------------------------------------------------
-	
-end
-
-function object.SendTroops()
-	local bDebug = true
-	
-	local nNow = HoN.GetGameTime()
-	
-	--check avaible bots
-	local tHunterInformation = object.tHunterInformation
-	
-	for nId, tHeroStatus in pairs(tHunterInformation) do
-		if tHeroStatus.sStatus == "Wait" and tHeroStatus.nMoveTime <= nNow then
-			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Move") end
-			tHeroStatus.sStatus = "Move"
-		elseif tHeroStatus.sStatus == "Move" and tHeroStatus.nGankTime <= nNow then
-			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Hunt") end
-			tHeroStatus.sStatus = "Hunt"
-		elseif tHeroStatus.sStatus == "Hunt" and tHeroStatus.nGankTime + 10000 <= nNow then
-			local unitEnemy = tHeroStatus.unitTarget
-			if unitEnemy then 
-				object.tCurrentlyGanked[unitEnemy:GetUniqueID()] = nil
-			end
-			if bDebug then BotEcho("Setting "..tHeroStatus.unitHero:GetTypeName().." to Idle") end
-			tHeroStatus.sStatus = "Idle"
-		end
-	end
-	
-end

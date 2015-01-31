@@ -281,6 +281,8 @@ function behaviorLib.PositionSelfTraverseLane(botBrain)
 			if bDebugEchos then BotEcho("PositionSelfTraverseLane - can't fine furthest creep wave pos in lane " .. tLane.sLaneName) end
 			desiredPos = core.enemyMainBaseStructure:GetPosition()
 		end
+		
+		if bDebugEchos then BotEcho("    vFurthest: "..tostring(vecFurthest)) end
 	else
 		BotEcho('PositionSelfTraverseLane - unable to get my lane!')
 	end
@@ -434,7 +436,7 @@ function behaviorLib.PositionSelfLogic(botBrain)
 	end
 	
 	if not vecDesiredPos then
-		if bDebugEchos then BotEcho("PositionSelfTraverseLane") end
+		if bDebugEchos then BotEcho("PositionSelfTraverseLane: "..tostring(vecLanePosition)) end
 		StartProfile("PositionSelfTraverseLane")
 			vecDesiredPos = vecLanePosition
 		StopProfile()
@@ -480,7 +482,7 @@ function core.GetClosestTeleportUnit(vecDesiredPosition)
 	if (unitBuilding == nil) then
 		return nil
 	end
-
+		
 	local vecBuildingPosition = unitBuilding:GetPosition()
 	local nDistance = Vector3.Distance2D(vecBuildingPosition, vecDesiredPosition)
 	local nDistancePositionToTowerSq = nDistance * nDistance
@@ -814,7 +816,7 @@ function behaviorLib.PathLogic(botBrain, vecDesiredPosition)
 
 		--double check the first node since we have a really sparse graph
 		local tPath = behaviorLib.tPath
-		if #tPath > 1 then
+		if tPath and #tPath > 1 then
 			local vecMeToFirst = tPath[1]:GetPosition() - vecMyPosition
 			local vecFirstToSecond = tPath[2]:GetPosition() - tPath[1]:GetPosition()
 			if Vector3.Dot(vecMeToFirst, vecFirstToSecond) < 0 then
@@ -1757,6 +1759,10 @@ function behaviorLib.HarassHeroExecute(botBrain)
 			if not bWellDiving then
 				if behaviorLib.lastHarassUtil < behaviorLib.diveThreshold then
 					if bDebugEchos then BotEcho("DON'T DIVE!") end
+					
+					if core.NumberElements(core.GetTowersThreateningPosition(vecDesiredPos, nil, core.myTeam)) > 0 then
+						return false
+					end
 									
 					if bUseTargetPosition and not bChanged then
 						core.OrderMoveToUnitClamp(botBrain, unitSelf, unitTarget, false)
@@ -2263,6 +2269,7 @@ function behaviorLib.DontBreakChannelUtility(botBrain)
 	local utility = 0
 
 	if core.unitSelf:IsChanneling() then
+
 		utility = 99
 	end
 
@@ -2343,6 +2350,8 @@ function behaviorLib.PositionSelfExecute(botBrain)
 	local unitTarget = nil
 	vecDesiredPos, unitTarget = behaviorLib.PositionSelfLogic(botBrain)
 
+	if bDebugEchos then BotEcho("PositionSelf myPos: "..tostring(vecMyPosition)); BotEcho("PositionSelf: "..tostring(vecDesiredPos)) end
+	
 	if vecDesiredPos then
 		behaviorLib.MoveExecute(botBrain, vecDesiredPos)
 	else
@@ -2645,91 +2654,150 @@ function behaviorLib.RetreatFromThreatUtility(botBrain)
 	return Clamp(nUtility, 0, 100)
 end
 
+
+behaviorLib.nTimeTeleported = 0
+function behaviorLib.CustomGetToJukeSpotExecute(botBrain, vecJukespot)
+	return false
+end
+ 
 function behaviorLib.RetreatFromThreatExecute(botBrain)
+	local bDebugLines = false
+       
+	if behaviorLib.nTimeTeleported+250 > HoN:GetGameTime() then -- we are escaping!
+		return
+	end
+       
 	--people can/will override this code, similar to CustomHarassUtility.
 	local bActionTaken = behaviorLib.CustomRetreatExecute(botBrain)
-	
+       
+	local unitSelf = core.unitSelf
+       
 	--Activate ghost marchers if we can
-	local itemGhostMarchers = core.itemGhostMarchers
-	if not bActionTaken and behaviorLib.lastRetreatUtil >= behaviorLib.retreatGhostMarchersThreshold and itemGhostMarchers and itemGhostMarchers:CanActivate() then
-		bActionTaken = core.OrderItemClamp(botBrain, core.unitSelf, itemGhostMarchers)
+	local itemGhostMarchers = core.GetItem("Item_EnhancedMarchers")
+	if not bActionTaken and itemGhostMarchers and behaviorLib.lastRetreatUtil >= behaviorLib.retreatGhostMarchersThreshold and itemGhostMarchers:CanActivate() then
+		bActionTaken = core.OrderItemClamp(botBrain, unitSelf, itemGhostMarchers)
 	end
-	
+       
+	--Juke time!
 	if not bActionTaken then
-		local unitSelf = core.unitSelf
+		local vecMyPos = unitSelf:GetPosition()
+		local itemPortable = core.GetItem("Item_HomecomingStone") or core.GetItem("Item_PostHaste")
+		local vecWell = core.allyWell and core.allyWell:GetPosition()
+	       
+		--BotEcho(behaviorLib.nLastHealAtWellUtil)
+		if itemPortable and itemPortable:CanActivate() and vecMyPos and vecWell and behaviorLib.nLastHealAtWellUtil > 20 then
+		       
+			-- closest node from a position which is 500 units closer to well than yourself
+			BotMetaData.SetActiveLayer('/bots/getAwayPoints.botmetadata')
+			local vecNodePos = BotMetaData.GetClosestNode(vecMyPos + Vector3.Normalize(vecWell - vecMyPos) * 300):GetPosition()
+			BotMetaData.SetActiveLayer(metadata.MapMetadataFile)
+		       
+			if bDebugLines then
+				core.DrawDebugArrow(vecMyPos, vecMyPos + Vector3.Normalize(vecWell - vecMyPos) * 300, 'green')
+				core.DrawDebugArrow(vecMyPos, vecNodePos, 'blue')
+			end
+			       
+			nJukeDistSq = Vector3.Distance2DSq(vecMyPos, vecNodePos)
+			--is the juke a decent idea? We don't want to run back towards the enemy! (unless it is part of the juke spot)
+			if (nJukeDistSq < 600 *  600 or abs(core.AngleBetween(vecWell - vecMyPos, vecNodePos - vecMyPos)) < 1) then
+				if nJukeDistSq < 50 * 50 then
+					bActionTaken = core.OrderItemPosition(botBrain, unitSelf, itemPortable, vecWell)
+					behaviorLib.nTimeTeleported = HoN:GetGameTime()
+				else
+					bActionTaken = behaviorLib.CustomGetToJukeSpotExecute(botBrain, vecNodePos)
+					if not bActionTaken then
+						bActionTaken = core.OrderMoveToPosClamp(botBrain, unitSelf, vecNodePos, false)
+					end
+				end
+			end
+		end
+	end
+       
+	if not bActionTaken then
 		local vecPos = behaviorLib.PositionSelfBackUp()
 		bActionTaken = vecPos and core.OrderMoveToPosClamp(botBrain, unitSelf, vecPos, false)
 	end
 	return bActionTaken
 end
-
+ 
 function behaviorLib.CustomRetreatExecute(botBrain)
 	--  this is a great function to override with using retreating skills, such as blinks, travels, stuns or slows.
 	return false
 end
-
+ 
 behaviorLib.RetreatFromThreatBehavior = {}
 behaviorLib.RetreatFromThreatBehavior["Utility"] = behaviorLib.RetreatFromThreatUtility
 behaviorLib.RetreatFromThreatBehavior["Execute"] = behaviorLib.RetreatFromThreatExecute
 behaviorLib.RetreatFromThreatBehavior["Name"] = "RetreatFromThreat"
 tinsert(behaviorLib.tBehaviors, behaviorLib.RetreatFromThreatBehavior)
-
-
+ 
+ 
 ----------------------------------
---	HealAtWell
+--      HealAtWell
 --
---	Utility: 0 to 100 based on proximity and current health/mana
+--      Utility: 0 to 100 based on proximity and current health/mana
 ----------------------------------
-
+ 
 function behaviorLib.WellProximityUtility(nDist)
-	local maxVal = 15
-	local farX = 8000
-
-	local util = 0
-	util = util + core.ParabolicDecayFn(nDist, maxVal, farX)
-	
+	local nMaxVal = 15
+	local nFarX = 8000
+ 
+	local nUtil = 0
+	nUtil = nUtil + core.ParabolicDecayFn(nDist, nMaxVal, nFarX)
+       
 	if nDist <= 600 then
-		util = util + 20
+
+		nUtil = nUtil + 20
 	end
-
-	util = Clamp(util, 0, 100)
-
-	--BotEcho("WellProxUtil: "..util.."  nDist: "..nDist)
-	return util
+ 
+	nUtil = Clamp(nUtil, 0, 100)
+ 
+	--BotEcho("WellProxUtil: "..nUtil.."  nDist: "..nDist)
+	return nUtil
 end
+ 
+function behaviorLib.WellHealthUtility(nHealthPercent)
+	local nHeight = 100
+	local vecCriticalPoint = Vector3.Create(0.30, 25)--up from 0.25,20
+ 
 
-function behaviorLib.WellHealthUtility(healthPercent)
-	local height = 100
-	local vCriticalPoint = Vector3.Create(0.30, 25)--up from 0.25,20
-
-	local util = height / ( (height/vCriticalPoint.y) ^ (healthPercent/vCriticalPoint.x) )
-	--BotEcho("WellHealthUtil: "..util.."  percent: "..healthPercent)
-	return util
+	local nUtil = nHeight / ( (nHeight/vecCriticalPoint.y) ^ (nHealthPercent/vecCriticalPoint.x) )
+	--BotEcho("WellHealthUtil: "..util.."  percent: "..nHealthPercent)
+	return nUtil
 end
+ 
 
-behaviorLib.HealAtWellEmptyManaPoolUtility = 8
+behaviorLib.nLastHealAtWellUtil = 0
+behaviorLib.nHealAtWellEmptyManaPoolUtility = 8
 -------- Behavior Fns --------
 function behaviorLib.HealAtWellUtility(botBrain)
-	local utility = 0
-	local hpPercent = core.unitSelf:GetHealthPercent()
-	local mpPercent = core.unitSelf:GetManaPercent()
 
-	if hpPercent < 0.95 or mpPercent < 0.95 then
-		local wellPos = (core.allyWell and core.allyWell:GetPosition()) or Vector3.Create()
-		local nDist = Vector3.Distance2D(wellPos, core.unitSelf:GetPosition())
-
-		utility = behaviorLib.WellHealthUtility(hpPercent) + behaviorLib.WellProximityUtility(nDist)
+	local nUtility = 0
+	local unitSelf = core.unitSelf
+	local nHealthPercent = unitSelf:GetHealthPercent()
+	local nManaPercent = unitSelf:GetManaPercent()
+ 
+	if nHealthPercent < 0.95 or nManaPercent < 0.95 then
+		local vecWellPos = (core.allyWell and core.allyWell:GetPosition()) or Vector3.Create()
+		local nDist = Vector3.Distance2D(vecWellPos, unitSelf:GetPosition())
+ 
+		nUtility = behaviorLib.WellHealthUtility(nHealthPercent) + behaviorLib.WellProximityUtility(nDist)
 	end
 	-- add (1 - 0.3%) * 8 for default utility and 30% mana remaining.
-	utility = utility + (1 - (core.unitSelf:GetManaPercent())) * behaviorLib.HealAtWellEmptyManaPoolUtility
-	
-	if botBrain.bDebugUtility == true and utility ~= 0 then
-		BotEcho(format("  HealAtWellUtility: %g", utility))
+
+	nUtility = nUtility + (1 - nManaPercent) * behaviorLib.nHealAtWellEmptyManaPoolUtility
+       
+
+	if botBrain.bDebugUtility == true and nUtility ~= 0 then
+		BotEcho(format("  HealAtWellUtility: %g", nUtility))
 	end
+       
 
-	return utility
+
+	behaviorLib.nLastHealAtWellUtil = nUtility
+       
+	return nUtility
 end
-
 -- people can/well override this function to heal at well better (bottle sip etc) called the whole time
 function behaviorLib.CustomHealAtWellExecute(botBrain)
 	return false
@@ -2747,7 +2815,7 @@ function behaviorLib.HealAtWellExecute(botBrain)
 	local bActionTaken = behaviorLib.CustomHealAtWellExecute(botBrain)
 	if not bActionTaken and Vector3.Distance2DSq(core.unitSelf:GetPosition(), wellPos) > 1200 * 1200 then
 		itemGhostMarchers = core.GetItem("Item_EnhancedMarchers")
-		if itemGhostMarchers ~= nil then
+		if itemGhostMarchers ~= nil and itemGhostMarchers:CanActivate() then
 			botBrain:OrderItem(itemGhostMarchers.object or itemGhostMarchers, false)
 		end
 		bActionTaken = behaviorLib.CustomReturnToWellExecute(botBrain)
